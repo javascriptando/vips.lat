@@ -1,0 +1,39 @@
+{
+  "name": "vips-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "bun run src/db/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "@hono/zod-validator": "^0.4.0",
+    "drizzle-orm": "^0.38.0",
+    "postgres": "^3.4.5",
+    "@lucia-auth/adapter-drizzle": "^1.1.0",
+    "lucia": "^3.2.0",
+    "arctic": "^2.2.0",
+    "@oslojs/crypto": "^1.0.1",
+    "@oslojs/encoding": "^1.1.0",
+    "zod": "^3.24.0",
+    "resend": "^4.0.0",
+    "ioredis": "^5.4.0",
+    "nanoid": "^5.0.9",
+    "date-fns": "^4.1.0",
+    "mime-types": "^2.1.35"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/mime-types": "^2.1.4",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  }
+}

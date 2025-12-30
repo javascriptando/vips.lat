@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-dark-700;
+  }
+
+  html, body {
+    @apply bg-dark-900 text-gray-100 font-sans;
+  }
+}
+
+@layer utilities {
+  .min-dvh {
+    min-height: 100dvh;
+  }
+  .h-dvh {
+    height: 100dvh;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl transition-all;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-dark-800 hover:bg-dark-700 text-white font-medium rounded-xl border border-dark-700 transition-all;
+  }
+
+  .input {
+    @apply w-full bg-dark-900 border border-dark-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 transition-all;
+  }
+
+  .card {
+    @apply bg-dark-800 border border-dark-700 rounded-2xl;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #18181b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes like-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  70% {
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out forwards;
+}
+
+.animate-like-pop {
+  animation: like-pop 0.6s ease-out forwards;
+}
+
+/* Safe area for mobile devices with notches */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Hide scrollbar but allow scrolling */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
