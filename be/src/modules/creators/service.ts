@@ -1,6 +1,6 @@
 import { db } from '@/db';
-import { creators, balances, users, subscriptions } from '@/db/schema';
-import { eq, ilike, desc, asc, sql, and, gte } from 'drizzle-orm';
+import { creators, balances, users, subscriptions, favorites } from '@/db/schema';
+import { eq, ilike, desc, asc, sql, and, gte, notInArray } from 'drizzle-orm';
 import { uploadFile, deleteFile } from '@/lib/storage';
 import { detectPixKeyType } from '@/lib/asaas';
 import { sendEmail, welcomeCreatorTemplate } from '@/lib/email';
@@ -251,7 +251,25 @@ export async function listCreators(input: ListCreatorsInput) {
 }
 
 // Criadores em destaque (mais populares, verificados, PRO)
-export async function getFeaturedCreators(limit = 10) {
+export async function getFeaturedCreators(limit = 10, excludeUserId?: string) {
+  const conditions = [eq(creators.isActive, true)];
+
+  // Nunca mostrar o próprio usuário nas sugestões
+  if (excludeUserId) {
+    conditions.push(sql`${creators.userId} != ${excludeUserId}`);
+
+    // Excluir criadores que o usuário já segue
+    const followedCreators = await db
+      .select({ creatorId: favorites.creatorId })
+      .from(favorites)
+      .where(eq(favorites.userId, excludeUserId));
+
+    if (followedCreators.length > 0) {
+      const followedIds = followedCreators.map(f => f.creatorId);
+      conditions.push(notInArray(creators.id, followedIds));
+    }
+  }
+
   const featured = await db
     .select({
       id: creators.id,
@@ -269,7 +287,7 @@ export async function getFeaturedCreators(limit = 10) {
     })
     .from(creators)
     .innerJoin(users, eq(users.id, creators.userId))
-    .where(eq(creators.isActive, true))
+    .where(and(...conditions))
     .orderBy(
       desc(creators.verified),
       desc(creators.isPro),
@@ -281,7 +299,25 @@ export async function getFeaturedCreators(limit = 10) {
 }
 
 // Criadores recentes
-export async function getRecentCreators(limit = 10) {
+export async function getRecentCreators(limit = 10, excludeUserId?: string) {
+  const conditions = [eq(creators.isActive, true)];
+
+  // Nunca mostrar o próprio usuário nas sugestões
+  if (excludeUserId) {
+    conditions.push(sql`${creators.userId} != ${excludeUserId}`);
+
+    // Excluir criadores que o usuário já segue
+    const followedCreators = await db
+      .select({ creatorId: favorites.creatorId })
+      .from(favorites)
+      .where(eq(favorites.userId, excludeUserId));
+
+    if (followedCreators.length > 0) {
+      const followedIds = followedCreators.map(f => f.creatorId);
+      conditions.push(notInArray(creators.id, followedIds));
+    }
+  }
+
   const recent = await db
     .select({
       id: creators.id,
@@ -299,7 +335,7 @@ export async function getRecentCreators(limit = 10) {
     })
     .from(creators)
     .innerJoin(users, eq(users.id, creators.userId))
-    .where(eq(creators.isActive, true))
+    .where(and(...conditions))
     .orderBy(desc(creators.createdAt))
     .limit(limit);
 

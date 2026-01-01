@@ -76,8 +76,6 @@ export function UserSubscriptionsView() {
                   ? formatDate(sub.expiresAt)
                   : sub.status === 'cancelled'
                   ? 'Cancelado'
-                  : sub.status === 'pending'
-                  ? 'Pendente'
                   : 'Expirado'}
               </div>
               {sub.status === 'active' && (
@@ -94,11 +92,6 @@ export function UserSubscriptionsView() {
                 >
                   Cancelar
                 </Button>
-              )}
-              {sub.status === 'pending' && (
-                <span className="text-xs text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded">
-                  Aguardando pagamento
-                </span>
               )}
             </div>
           </Card>

@@ -10,6 +10,12 @@ export default defineConfig({
                 target: 'http://localhost:7777',
                 changeOrigin: true,
             },
+            '/ws': {
+                target: 'http://localhost:7777',
+                ws: true,
+                changeOrigin: true,
+                rewriteWsOrigin: true,
+            },
         },
     },
     plugins: [react()],

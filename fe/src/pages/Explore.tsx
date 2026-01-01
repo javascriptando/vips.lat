@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
-import { Search, Star, TrendingUp, Sparkles, Heart, MessageCircle, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Search, Star, TrendingUp, Sparkles, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Card, Avatar, Button } from '@/components/ui';
+import { Card, Button } from '@/components/ui';
 import { MediaViewer, type MediaPost } from '@/components/MediaViewer';
-import { MediaPreview } from '@/components/MediaPreview';
+import { PostCard } from '@/components/cards';
+import { CreatorCard } from '@/components/cards';
 import { api } from '@/lib/api';
-import { formatCurrency, resolveMediaUrl, formatCount } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 import type { Content, Creator } from '@/types';
 
 // Convert content to MediaPost format
@@ -18,6 +19,7 @@ function contentToMediaPost(content: Content): MediaPost {
       type: m.type,
       thumbnailUrl: m.thumbnailUrl || undefined,
       ppvPrice: m.ppvPrice,
+      hasAccess: m.hasAccess,
     })),
     text: content.text || undefined,
     creator: {
@@ -29,105 +31,13 @@ function contentToMediaPost(content: Content): MediaPost {
     },
     likeCount: content.likeCount,
     commentCount: content.commentCount,
+    viewCount: content.viewCount || 0,
     isLiked: content.isLiked,
     hasBookmarked: content.hasBookmarked,
     hasAccess: content.hasAccess ?? true,
     visibility: content.visibility,
     ppvPrice: content.ppvPrice || undefined,
   };
-}
-
-// Creator Card Component
-function CreatorCard({ creator }: { creator: Creator }) {
-  return (
-    <Link
-      to={`/creator/${creator.username}`}
-      className="flex-shrink-0 w-40 group"
-    >
-      <div className="relative h-52 rounded-xl overflow-hidden bg-dark-800 border border-dark-700 group-hover:border-brand-500/50 transition-all">
-        {/* Cover */}
-        <div className="h-20 bg-gradient-to-br from-purple-600 to-brand-600">
-          {creator.coverUrl && (
-            <img src={resolveMediaUrl(creator.coverUrl) || ''} alt="" className="w-full h-full object-cover" />
-          )}
-        </div>
-
-        {/* Avatar */}
-        <div className="absolute top-12 left-1/2 -translate-x-1/2">
-          <div className="p-0.5 bg-gradient-to-br from-brand-500 to-purple-500 rounded-full">
-            <Avatar
-              src={creator.avatarUrl}
-              name={creator.displayName}
-              size="lg"
-              className="border-2 border-dark-800"
-            />
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="pt-10 px-3 pb-3 text-center">
-          <div className="flex items-center justify-center gap-1">
-            <h3 className="font-bold text-white text-sm truncate">{creator.displayName}</h3>
-            {creator.isVerified && <CheckCircle2 size={12} className="text-blue-500 fill-blue-500/20 flex-shrink-0" />}
-          </div>
-          <p className="text-xs text-gray-500 truncate">@{creator.username}</p>
-          <div className="mt-2 text-xs text-brand-400 font-medium">
-            {formatCurrency(creator.subscriptionPrice)}/mês
-          </div>
-        </div>
-      </div>
-    </Link>
-  );
-}
-
-// Content Card for Explore
-function ExplorePostCard({ post, onOpenMedia }: { post: Content; onOpenMedia: (post: Content) => void }) {
-  const firstMedia = post.media[0];
-  const hasVideo = post.media.some(m => m.type === 'video');
-
-  if (!post.creator) return null;
-
-  return (
-    <div className="group cursor-pointer" onClick={() => onOpenMedia(post)}>
-      <div className="relative aspect-square rounded-xl overflow-hidden bg-dark-800 border border-dark-700 group-hover:border-brand-500/50 transition-all">
-        {firstMedia && (
-          <MediaPreview
-            url={firstMedia.url}
-            thumbnailUrl={firstMedia.thumbnailUrl}
-            type={firstMedia.type}
-            className="w-full h-full"
-            showPlayIcon={hasVideo}
-            aspectRatio="square"
-          />
-        )}
-
-        {/* Overlay on hover */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-6">
-          <div className="flex items-center gap-1.5 text-white">
-            <Heart size={20} className={post.isLiked ? 'fill-red-500 text-red-500' : ''} />
-            <span className="font-medium">{formatCount(post.likeCount)}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-white">
-            <MessageCircle size={20} />
-            <span className="font-medium">{formatCount(post.commentCount)}</span>
-          </div>
-        </div>
-
-        {/* Multiple media indicator */}
-        {post.media.length > 1 && (
-          <div className="absolute top-2 right-2 bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-sm">
-            {post.media.length}
-          </div>
-        )}
-      </div>
-
-      {/* Creator info */}
-      <div className="mt-2 flex items-center gap-2">
-        <Avatar src={post.creator.avatarUrl} name={post.creator.displayName} size="xs" />
-        <span className="text-xs text-gray-400 truncate">{post.creator.displayName}</span>
-      </div>
-    </div>
-  );
 }
 
 // Horizontal Scroll Section
@@ -164,6 +74,7 @@ function HorizontalSection({
 export function Explore() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPost, setSelectedPost] = useState<MediaPost | null>(null);
+  const { isAuthenticated } = useAuth();
 
   // Featured creators
   const { data: featuredData, isLoading: featuredLoading } = useQuery({
@@ -192,7 +103,7 @@ export function Explore() {
     hasNextPage,
     isFetchingNextPage
   } = useInfiniteQuery({
-    queryKey: ['exploreFeed'],
+    queryKey: ['exploreFeed', isAuthenticated],
     queryFn: ({ pageParam = 1 }) => api.getExploreFeed({ page: pageParam, pageSize: 12 }),
     getNextPageParam: (lastPage) => {
       if (lastPage.pagination.page < lastPage.pagination.totalPages) {
@@ -246,8 +157,14 @@ export function Explore() {
             </div>
           ) : searchResults.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {searchResults.map((creator) => (
-                <CreatorCard key={creator.id} creator={creator} />
+              {searchResults.map((creator: Creator) => (
+                <CreatorCard
+                  key={creator.id}
+                  creator={creator}
+                  variant="featured"
+                  showFollowButton={false}
+                  showStats
+                />
               ))}
             </div>
           ) : (
@@ -272,8 +189,13 @@ export function Explore() {
                   <div key={i} className="flex-shrink-0 w-40 h-52 bg-dark-800 rounded-xl animate-pulse" />
                 ))
               ) : (
-                featuredCreators.map((creator) => (
-                  <CreatorCard key={creator.id} creator={creator} />
+                featuredCreators.map((creator: Creator) => (
+                  <CreatorCard
+                    key={creator.id}
+                    creator={creator}
+                    variant="inline"
+                    showFollowButton={false}
+                  />
                 ))
               )}
             </HorizontalSection>
@@ -285,8 +207,13 @@ export function Explore() {
               title="Novos na Plataforma"
               icon={<Sparkles size={20} className="text-purple-500" />}
             >
-              {recentCreators.map((creator) => (
-                <CreatorCard key={creator.id} creator={creator} />
+              {recentCreators.map((creator: Creator) => (
+                <CreatorCard
+                  key={creator.id}
+                  creator={creator}
+                  variant="inline"
+                  showFollowButton={false}
+                />
               ))}
             </HorizontalSection>
           )}
@@ -309,7 +236,13 @@ export function Explore() {
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                   {allContent.map((post) => (
-                    <ExplorePostCard key={post.id} post={post} onOpenMedia={handleOpenMedia} />
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      variant="grid"
+                      showCreatorInfo={false}
+                      onOpenMedia={handleOpenMedia}
+                    />
                   ))}
                 </div>
 

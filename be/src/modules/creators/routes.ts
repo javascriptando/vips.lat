@@ -31,14 +31,16 @@ creatorRoutes.get('/', zValidator('query', listCreatorsSchema), async (c) => {
 // GET /api/creators/featured - Criadores em destaque
 creatorRoutes.get('/featured', async (c) => {
   const limit = parseInt(c.req.query('limit') || '10');
-  const featured = await creatorService.getFeaturedCreators(Math.min(limit, 50));
+  const user = c.get('user');
+  const featured = await creatorService.getFeaturedCreators(Math.min(limit, 50), user?.id);
   return c.json({ creators: featured });
 });
 
 // GET /api/creators/recent - Criadores recentes
 creatorRoutes.get('/recent', async (c) => {
   const limit = parseInt(c.req.query('limit') || '10');
-  const recent = await creatorService.getRecentCreators(Math.min(limit, 50));
+  const user = c.get('user');
+  const recent = await creatorService.getRecentCreators(Math.min(limit, 50), user?.id);
   return c.json({ creators: recent });
 });
 

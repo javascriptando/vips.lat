@@ -13,6 +13,13 @@ storyRoutes.get('/', requireAuth, async (c) => {
   return c.json({ stories });
 });
 
+// GET /api/stories/me - Get my own stories (creator only)
+storyRoutes.get('/me', requireCreator, async (c) => {
+  const creator = c.get('creator')!;
+  const stories = await storyService.getActiveStoriesByCreator(creator.id);
+  return c.json({ stories });
+});
+
 // GET /api/stories/creator/:creatorId - Get stories from a specific creator
 storyRoutes.get('/creator/:creatorId', async (c) => {
   const creatorId = c.req.param('creatorId');
@@ -20,11 +27,37 @@ storyRoutes.get('/creator/:creatorId', async (c) => {
   return c.json({ stories });
 });
 
-// POST /api/stories - Create a new story (creator only)
+// POST /api/stories - Create a new story with pre-uploaded media (creator only)
 storyRoutes.post('/', requireCreator, async (c) => {
   const creator = c.get('creator')!;
+  const contentType = c.req.header('Content-Type') || '';
 
   try {
+    // Check if it's JSON (pre-uploaded media) or FormData (direct upload)
+    if (contentType.includes('application/json')) {
+      // Pre-uploaded media via chunked upload
+      const body = await c.req.json();
+      const { mediaUrl, mediaType, text } = body;
+
+      if (!mediaUrl || !mediaType) {
+        return c.json({ error: 'URL e tipo de mídia são obrigatórios' }, 400);
+      }
+
+      if (!['image', 'video'].includes(mediaType)) {
+        return c.json({ error: 'Tipo de mídia inválido' }, 400);
+      }
+
+      const story = await storyService.createStory(creator.id, {
+        mediaUrl,
+        mediaType,
+        thumbnailUrl: undefined,
+        text: text || undefined,
+      });
+
+      return c.json({ message: 'Story criado com sucesso', story }, 201);
+    }
+
+    // FormData - direct file upload (legacy/fallback)
     const formData = await c.req.formData();
     const file = formData.get('file') as File | null;
     const text = formData.get('text') as string | null;

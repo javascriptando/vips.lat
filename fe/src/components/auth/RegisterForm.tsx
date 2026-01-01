@@ -69,7 +69,7 @@ export function RegisterForm({ onBack, onSwitchToLogin }: RegisterFormProps) {
           <p className="text-gray-400">Comece a lucrar ou apoiar criadores</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">{error}</div>
           )}

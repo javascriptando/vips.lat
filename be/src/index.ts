@@ -27,6 +27,7 @@ interface WSData {
 
 export default {
   port: env.PORT,
+  hostname: '0.0.0.0',
   async fetch(req: Request, server: any) {
     const url = new URL(req.url);
 

@@ -1,10 +1,11 @@
 import { db } from '@/db';
-import { payments, subscriptions, contents, contentPurchases, creators, balances, users } from '@/db/schema';
+import { payments, subscriptions, contents, contentPurchases, creators, balances, users, mediaPacks, mediaPackPurchases, messages, conversations } from '@/db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { createPixPayment, createCustomer, findCustomerByEmail, updateCustomer } from '@/lib/asaas';
+import { createPixPayment, createCustomer, findCustomerByEmail, updateCustomer, getPayment } from '@/lib/asaas';
 import { calculateFees, toReais, formatCurrency } from '@/lib/utils';
 import { LIMITS } from '@/config/constants';
 import { sendEmail, paymentConfirmedTemplate } from '@/lib/email';
+import { notifyNewTip, broadcastTip } from '@/lib/websocket';
 import * as subscriptionService from '@/modules/subscriptions/service';
 import type { ListPaymentsInput } from './schemas';
 
@@ -131,23 +132,55 @@ export async function createSubscriptionPayment(
   };
 }
 
-export async function createPPVPayment(userId: string, contentId: string, cpfCnpj?: string) {
+export async function createPPVPayment(userId: string, contentId: string, mediaIndex?: number, cpfCnpj?: string) {
   const content = await db.query.contents.findFirst({ where: eq(contents.id, contentId) });
   if (!content) throw new Error('Conteúdo não encontrado');
-  if (content.visibility !== 'ppv' || !content.ppvPrice) {
-    throw new Error('Este conteúdo não é PPV');
-  }
 
-  // Verificar se já comprou
-  const existing = await db.query.contentPurchases.findFirst({
-    where: and(eq(contentPurchases.userId, userId), eq(contentPurchases.contentId, contentId)),
-  });
-  if (existing) throw new Error('Você já comprou este conteúdo');
+  let price: number;
+
+  if (mediaIndex !== undefined) {
+    // Per-media PPV purchase
+    const mediaArray = content.media as Array<{ ppvPrice?: number }> | null;
+    if (!mediaArray || mediaIndex >= mediaArray.length) {
+      throw new Error('Item de mídia não encontrado');
+    }
+    const mediaItem = mediaArray[mediaIndex];
+    if (!mediaItem.ppvPrice || mediaItem.ppvPrice <= 0) {
+      throw new Error('Este item não é PPV');
+    }
+    price = mediaItem.ppvPrice;
+
+    // Verificar se já comprou este item específico
+    const existing = await db.query.contentPurchases.findFirst({
+      where: and(
+        eq(contentPurchases.userId, userId),
+        eq(contentPurchases.contentId, contentId),
+        eq(contentPurchases.mediaIndex, mediaIndex)
+      ),
+    });
+    if (existing) throw new Error('Você já comprou este item');
+  } else {
+    // Content-level PPV purchase
+    if (content.visibility !== 'ppv' || !content.ppvPrice) {
+      throw new Error('Este conteúdo não é PPV');
+    }
+    price = content.ppvPrice;
+
+    // Verificar se já comprou o conteúdo inteiro
+    const existing = await db.query.contentPurchases.findFirst({
+      where: and(
+        eq(contentPurchases.userId, userId),
+        eq(contentPurchases.contentId, contentId),
+        sql`${contentPurchases.mediaIndex} IS NULL`
+      ),
+    });
+    if (existing) throw new Error('Você já comprou este conteúdo');
+  }
 
   const creator = await db.query.creators.findFirst({ where: eq(creators.id, content.creatorId) });
   if (!creator) throw new Error('Criador não encontrado');
 
-  const fees = calculateFees(content.ppvPrice, 'ppv');
+  const fees = calculateFees(price, 'ppv');
   const customerId = await ensureAsaasCustomer(userId, cpfCnpj);
 
   const [payment] = await db
@@ -161,15 +194,18 @@ export async function createPPVPayment(userId: string, contentId: string, cpfCnp
       pixFee: fees.pixFee,
       platformFee: fees.platformFee,
       creatorAmount: fees.creatorAmount,
-      description: `Conteúdo PPV - ${creator.displayName}`,
+      description: mediaIndex !== undefined
+        ? `Item PPV #${mediaIndex + 1} - ${creator.displayName}`
+        : `Conteúdo PPV - ${creator.displayName}`,
       status: 'pending',
+      metadata: mediaIndex !== undefined ? { mediaIndex } : null,
     })
     .returning();
 
   const { payment: asaasPayment, qrCode } = await createPixPayment({
     customerId,
     value: toReais(fees.totalCharged),
-    description: `Conteúdo PPV VIPS`,
+    description: mediaIndex !== undefined ? `Item PPV VIPS` : `Conteúdo PPV VIPS`,
     externalReference: payment.id,
   });
 
@@ -193,7 +229,7 @@ export async function createPPVPayment(userId: string, contentId: string, cpfCnp
   };
 }
 
-export async function createTipPayment(userId: string, creatorId: string, amount: number, message?: string, cpfCnpj?: string) {
+export async function createTipPayment(userId: string, creatorId: string, amount: number, message?: string, contentId?: string, cpfCnpj?: string) {
   const creator = await db.query.creators.findFirst({ where: eq(creators.id, creatorId) });
   if (!creator) throw new Error('Criador não encontrado');
 
@@ -212,6 +248,7 @@ export async function createTipPayment(userId: string, creatorId: string, amount
       creatorAmount: fees.creatorAmount,
       description: message || `Gorjeta para ${creator.displayName}`,
       status: 'pending',
+      metadata: { message, contentId }, // Store for real-time broadcast
     })
     .returning();
 
@@ -293,6 +330,35 @@ export async function createProPlanPayment(userId: string, cpfCnpj?: string) {
   };
 }
 
+// Check Asaas payment status and update if confirmed
+export async function checkAndUpdatePaymentStatus(paymentId: string, asaasPaymentId: string) {
+  try {
+    const asaasPayment = await getPayment(asaasPaymentId);
+
+    // Check if payment was received/confirmed
+    if (asaasPayment.status === 'RECEIVED' || asaasPayment.status === 'CONFIRMED') {
+      // Confirm payment in our system
+      const confirmedPayment = await confirmPayment(paymentId);
+      return confirmedPayment;
+    }
+
+    // Check if payment expired or failed
+    if (asaasPayment.status === 'OVERDUE' || asaasPayment.status === 'REFUNDED') {
+      await db
+        .update(payments)
+        .set({ status: 'expired', updatedAt: new Date() })
+        .where(eq(payments.id, paymentId));
+
+      return await db.query.payments.findFirst({ where: eq(payments.id, paymentId) });
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error checking Asaas payment status:', error);
+    return null;
+  }
+}
+
 export async function confirmPayment(paymentId: string) {
   const payment = await db.query.payments.findFirst({ where: eq(payments.id, paymentId) });
   if (!payment) throw new Error('Pagamento não encontrado');
@@ -320,11 +386,28 @@ export async function confirmPayment(paymentId: string) {
   }
 
   if (payment.type === 'ppv' && payment.contentId) {
+    const ppvMediaIndex = (payment.metadata as { mediaIndex?: number })?.mediaIndex;
     await db.insert(contentPurchases).values({
       userId: payment.payerId,
       contentId: payment.contentId,
+      mediaIndex: ppvMediaIndex ?? null, // null = content-level, number = specific media item
       pricePaid: payment.amount,
     });
+  }
+
+  // Broadcast tip in real-time
+  if (payment.type === 'tip' && payment.creatorId) {
+    const payer = await db.query.users.findFirst({ where: eq(users.id, payment.payerId) });
+    const tipMessage = (payment.metadata as { message?: string })?.message;
+    const contentId = (payment.metadata as { contentId?: string })?.contentId;
+
+    // Notify the creator
+    notifyNewTip(payment.creatorId, payment.amount, payment.payerId, payer?.name || 'Alguém', tipMessage);
+
+    // Broadcast to all users viewing the content (if tip is associated with content)
+    if (contentId) {
+      broadcastTip(contentId, payment.creatorId, payment.amount, payer?.name || 'Alguém', tipMessage);
+    }
   }
 
   if (payment.type === 'pro_plan') {
@@ -340,6 +423,37 @@ export async function confirmPayment(paymentId: string) {
           updatedAt: new Date(),
         })
         .where(eq(creators.id, creator.id));
+    }
+  }
+
+  // Handle pack purchases
+  if (payment.type === 'pack') {
+    const packId = (payment.metadata as { packId?: string })?.packId;
+    const msgId = (payment.metadata as { messageId?: string })?.messageId;
+    if (packId) {
+      await db.insert(mediaPackPurchases).values({
+        userId: payment.payerId,
+        packId,
+        pricePaid: payment.amount,
+        messageId: msgId || null,
+      });
+
+      // Increment sales count
+      await db
+        .update(mediaPacks)
+        .set({ salesCount: sql`${mediaPacks.salesCount} + 1` })
+        .where(eq(mediaPacks.id, packId));
+    }
+  }
+
+  // Handle message PPV purchases
+  if (payment.type === 'ppv') {
+    const msgId = (payment.metadata as { messageId?: string })?.messageId;
+    if (msgId) {
+      await db
+        .update(messages)
+        .set({ isPurchased: true })
+        .where(eq(messages.id, msgId));
     }
   }
 
@@ -493,4 +607,135 @@ export async function refundPayment(paymentId: string) {
     .returning();
 
   return updated;
+}
+
+// Create pack payment
+export async function createPackPayment(userId: string, packId: string, messageId?: string, cpfCnpj?: string) {
+  const pack = await db.query.mediaPacks.findFirst({ where: eq(mediaPacks.id, packId) });
+  if (!pack) throw new Error('Pacote não encontrado');
+  if (!pack.isActive) throw new Error('Este pacote não está mais disponível');
+
+  // Check if already purchased
+  const existing = await db.query.mediaPackPurchases.findFirst({
+    where: and(
+      eq(mediaPackPurchases.packId, packId),
+      eq(mediaPackPurchases.userId, userId)
+    ),
+  });
+  if (existing) throw new Error('Você já comprou este pacote');
+
+  const creator = await db.query.creators.findFirst({ where: eq(creators.id, pack.creatorId) });
+  if (!creator) throw new Error('Criador não encontrado');
+
+  const fees = calculateFees(pack.price, 'ppv'); // Use PPV fee structure for packs
+  const customerId = await ensureAsaasCustomer(userId, cpfCnpj);
+
+  const [payment] = await db
+    .insert(payments)
+    .values({
+      payerId: userId,
+      creatorId: pack.creatorId,
+      type: 'pack',
+      amount: fees.amount,
+      pixFee: fees.pixFee,
+      platformFee: fees.platformFee,
+      creatorAmount: fees.creatorAmount,
+      description: `Pacote: ${pack.name}`,
+      status: 'pending',
+      metadata: { packId, messageId },
+    })
+    .returning();
+
+  const { payment: asaasPayment, qrCode } = await createPixPayment({
+    customerId,
+    value: toReais(fees.totalCharged),
+    description: `VIPS - Pacote: ${pack.name}`,
+    externalReference: payment.id,
+    dueDate: new Date(Date.now() + 30 * 60 * 1000).toISOString().split('T')[0],
+  });
+
+  const [updatedPayment] = await db
+    .update(payments)
+    .set({
+      asaasPaymentId: asaasPayment.id,
+      asaasPixQrCode: qrCode.payload,
+      asaasPixQrCodeImage: qrCode.encodedImage,
+    })
+    .where(eq(payments.id, payment.id))
+    .returning();
+
+  return {
+    payment: updatedPayment,
+    qrCode: { payload: qrCode.payload, image: qrCode.encodedImage, expiresAt: qrCode.expirationDate },
+    amount: fees.amount,
+    pixFee: fees.pixFee,
+    total: fees.totalCharged,
+  };
+}
+
+// Create message PPV payment (for PPV media sent in chat)
+export async function createMessagePPVPayment(userId: string, messageId: string, cpfCnpj?: string) {
+  const message = await db.query.messages.findFirst({ where: eq(messages.id, messageId) });
+  if (!message) throw new Error('Mensagem não encontrada');
+  if (!message.ppvPrice) throw new Error('Esta mensagem não é paga');
+  if (message.isPurchased) throw new Error('Você já comprou este conteúdo');
+
+  // Get conversation to find creator
+  const conversation = await db.query.conversations.findFirst({
+    where: eq(conversations.id, message.conversationId),
+  });
+  if (!conversation) throw new Error('Conversa não encontrada');
+
+  // Verify user is the recipient (userId of conversation, not the sender)
+  if (conversation.userId !== userId) {
+    throw new Error('Você não pode comprar este conteúdo');
+  }
+
+  const creator = await db.query.creators.findFirst({ where: eq(creators.id, conversation.creatorId) });
+  if (!creator) throw new Error('Criador não encontrado');
+
+  const fees = calculateFees(message.ppvPrice, 'ppv');
+  const customerId = await ensureAsaasCustomer(userId, cpfCnpj);
+
+  const [payment] = await db
+    .insert(payments)
+    .values({
+      payerId: userId,
+      creatorId: creator.id,
+      type: 'ppv',
+      amount: fees.amount,
+      pixFee: fees.pixFee,
+      platformFee: fees.platformFee,
+      creatorAmount: fees.creatorAmount,
+      description: 'Conteúdo PPV em mensagem',
+      status: 'pending',
+      metadata: { messageId },
+    })
+    .returning();
+
+  const { payment: asaasPayment, qrCode } = await createPixPayment({
+    customerId,
+    value: toReais(fees.totalCharged),
+    description: 'VIPS - Conteúdo PPV',
+    externalReference: payment.id,
+    dueDate: new Date(Date.now() + 30 * 60 * 1000).toISOString().split('T')[0],
+  });
+
+  const [updatedPayment] = await db
+    .update(payments)
+    .set({
+      asaasPaymentId: asaasPayment.id,
+      asaasPixQrCode: qrCode.payload,
+      asaasPixQrCodeImage: qrCode.encodedImage,
+    })
+    .where(eq(payments.id, payment.id))
+    .returning();
+
+  return {
+    payment: updatedPayment,
+    qrCode: { payload: qrCode.payload, image: qrCode.encodedImage, expiresAt: qrCode.expirationDate },
+    amount: fees.amount,
+    pixFee: fees.pixFee,
+    total: fees.totalCharged,
+  };
 }

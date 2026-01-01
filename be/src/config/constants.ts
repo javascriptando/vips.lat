@@ -18,7 +18,7 @@ export const FEES = {
 export const LIMITS = {
   MIN_SUBSCRIPTION_PRICE: 999,  // R$ 9,99
   MAX_SUBSCRIPTION_PRICE: 99999, // R$ 999,99
-  MIN_TIP_AMOUNT: 500,          // R$ 5,00
+  MIN_TIP_AMOUNT: 990,          // R$ 9,90
   MIN_PPV_PRICE: 999,           // R$ 9,99
   MAX_PPV_PRICE: 99999,         // R$ 999,99
   MIN_PAYOUT_AMOUNT: 2000,      // R$ 20,00

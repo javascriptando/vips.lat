@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { WebSocketProvider } from '@/providers/WebSocketProvider';
 import { LandingPage } from '@/components/auth';
 import { MainLayout } from '@/components/layout';
 import {
@@ -14,12 +15,12 @@ import {
   CreatorProfile,
   ContentManager,
   SubscribersList,
-  PurchasedView,
-  SavedPostsView,
+  CollectionView,
   UserSubscriptionsView,
   UserProfileView,
   MessagesView,
   PostView,
+  PackView,
 } from '@/pages';
 
 const queryClient = new QueryClient({
@@ -84,6 +85,11 @@ function AppRoutes() {
         <Route index element={<Explore />} />
       </Route>
 
+      {/* Public Pack View - accessible without login (but purchase requires auth) */}
+      <Route path="/pack/:id" element={<MainLayout />}>
+        <Route index element={<PackView />} />
+      </Route>
+
       {/* Protected Routes */}
       <Route
         element={
@@ -94,8 +100,7 @@ function AppRoutes() {
       >
         {/* Subscriber Routes */}
         <Route path="/feed" element={<Feed />} />
-        <Route path="/purchased" element={<PurchasedView />} />
-        <Route path="/saved" element={<SavedPostsView />} />
+        <Route path="/collection" element={<CollectionView />} />
         <Route path="/subscriptions" element={<UserSubscriptionsView />} />
         <Route path="/profile" element={<UserProfileView />} />
         <Route path="/messages" element={<MessagesView />} />
@@ -118,20 +123,22 @@ function AppRoutes() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AppRoutes />
-        <Toaster
-          position="top-right"
-          theme="dark"
-          toastOptions={{
-            style: {
-              background: '#18181b',
-              border: '1px solid #27272a',
-              color: '#fff',
-            },
-          }}
-        />
-      </BrowserRouter>
+      <WebSocketProvider>
+        <BrowserRouter>
+          <AppRoutes />
+          <Toaster
+            position="top-right"
+            theme="dark"
+            toastOptions={{
+              style: {
+                background: '#18181b',
+                border: '1px solid #27272a',
+                color: '#fff',
+              },
+            }}
+          />
+        </BrowserRouter>
+      </WebSocketProvider>
     </QueryClientProvider>
   );
 }

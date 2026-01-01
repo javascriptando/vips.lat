@@ -6,8 +6,7 @@ import {
   Users,
   Settings,
   Search,
-  ShoppingBag,
-  Bookmark,
+  FolderHeart,
   CheckCircle2,
   User as UserIcon,
   LogOut,
@@ -39,8 +38,7 @@ export function Sidebar({ isMobileOpen, setIsMobileOpen }: SidebarProps) {
   const subscriberMenuItems = [
     { path: '/feed', icon: Home, label: 'Feed' },
     { path: '/explore', icon: Search, label: 'Explorar' },
-    { path: '/purchased', icon: ShoppingBag, label: 'Comprados' },
-    { path: '/saved', icon: Bookmark, label: 'Salvos' },
+    { path: '/collection', icon: FolderHeart, label: 'Coleção' },
     { path: '/subscriptions', icon: CheckCircle2, label: 'Assinaturas' },
     { path: '/profile', icon: UserIcon, label: 'Meu Perfil' },
   ];

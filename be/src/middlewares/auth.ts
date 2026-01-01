@@ -2,6 +2,9 @@ import type { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { lucia } from '@/lib/auth';
 import type { User, Session } from 'lucia';
+import { db } from '@/db';
+import { creators } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 
 // Tipos para o contexto
 export interface AuthVariables {
@@ -76,6 +79,17 @@ export async function requireCreator(c: Context, next: Next) {
   if (user.role !== 'creator' && user.role !== 'admin') {
     return c.json({ error: 'Apenas criadores podem acessar este recurso' }, 403);
   }
+
+  // Fetch and set creator on context
+  const creator = await db.query.creators.findFirst({
+    where: eq(creators.userId, user.id),
+  });
+
+  if (!creator) {
+    return c.json({ error: 'Perfil de criador não encontrado' }, 404);
+  }
+
+  c.set('creator', creator);
 
   return next();
 }

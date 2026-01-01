@@ -55,7 +55,7 @@ export function LoginForm({ onBack, onSwitchToRegister }: LoginFormProps) {
           <p className="text-gray-400">Entre para acessar sua conta</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">{error}</div>
           )}

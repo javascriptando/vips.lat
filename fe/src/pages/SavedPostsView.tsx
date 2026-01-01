@@ -1,110 +1,70 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bookmark, Heart, MessageCircle, MoreVertical, CheckCircle2 } from 'lucide-react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Bookmark } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Card, Avatar } from '@/components/ui';
-import { MediaPreview } from '@/components/MediaPreview';
+import { Card } from '@/components/ui';
+import { PostCard } from '@/components/cards';
+import { MediaViewer, type MediaPost } from '@/components/MediaViewer';
 import { api } from '@/lib/api';
-import { formatRelativeTime } from '@/lib/utils';
-import { toast } from 'sonner';
 import type { Content } from '@/types';
 
-function PostCard({ post }: { post: Content }) {
-  const queryClient = useQueryClient();
-
-  const toggleBookmark = useMutation({
-    mutationFn: () => api.toggleBookmark(post.id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['savedPosts'] });
-      toast.success('Post removido dos salvos');
+// Convert Content to MediaPost format for MediaViewer
+function contentToMediaPost(content: Content): MediaPost {
+  return {
+    id: content.id,
+    media: content.media.map((m) => ({
+      url: m.url,
+      type: m.type,
+      thumbnailUrl: m.thumbnailUrl || undefined,
+      ppvPrice: m.ppvPrice,
+      hasAccess: m.hasAccess,
+    })),
+    hasAccess: content.hasAccess ?? true,
+    visibility: content.visibility,
+    ppvPrice: content.ppvPrice || undefined,
+    creator: {
+      id: content.creator.id,
+      displayName: content.creator.displayName,
+      username: content.creator.username,
+      avatarUrl: content.creator.avatarUrl || undefined,
+      isVerified: content.creator.isVerified,
     },
-  });
-
-  // Guard against missing creator data
-  if (!post.creator) {
-    return null;
-  }
-
-  const firstMedia = post.media[0];
-  const hasVideo = post.media.some(m => m.type === 'video');
-
-  return (
-    <Card padding="none" className="overflow-hidden mb-6 animate-slide-up">
-      <div className="p-4 flex items-center justify-between">
-        <Link to={`/creator/${post.creator.username}`} className="flex items-center gap-3">
-          <Avatar src={post.creator.avatarUrl} name={post.creator.displayName} />
-          <div>
-            <div className="flex items-center gap-1">
-              <h3 className="font-bold text-white text-sm">{post.creator.displayName}</h3>
-              {post.creator.isVerified && (
-                <CheckCircle2 size={14} className="text-blue-500 fill-blue-500/20" />
-              )}
-            </div>
-            <p className="text-xs text-gray-400">{formatRelativeTime(post.createdAt)}</p>
-          </div>
-        </Link>
-        <button className="text-gray-400 hover:text-white">
-          <MoreVertical size={20} />
-        </button>
-      </div>
-
-      {post.text && (
-        <div className="px-4 pb-3">
-          <p className="text-gray-200 text-sm whitespace-pre-line">{post.text}</p>
-        </div>
-      )}
-
-      {firstMedia && (
-        <div className="relative aspect-square md:aspect-video w-full bg-dark-900 overflow-hidden">
-          <MediaPreview
-            url={firstMedia.url}
-            thumbnailUrl={firstMedia.thumbnailUrl}
-            type={firstMedia.type}
-            className="w-full h-full"
-            showPlayIcon={hasVideo}
-            aspectRatio="auto"
-          />
-          {post.media.length > 1 && (
-            <div className="absolute top-3 right-3 bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-sm">
-              1/{post.media.length}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <button className="flex items-center gap-1.5 text-gray-400 hover:text-red-500 transition-colors group">
-              <Heart size={20} className={post.isLiked ? 'fill-red-500 text-red-500' : 'group-hover:fill-red-500'} />
-              <span className="text-sm font-medium">{post.likeCount}</span>
-            </button>
-            <button className="flex items-center gap-1.5 text-gray-400 hover:text-blue-400 transition-colors">
-              <MessageCircle size={20} />
-              <span className="text-sm font-medium">{post.commentCount}</span>
-            </button>
-          </div>
-          <button
-            onClick={() => toggleBookmark.mutate()}
-            className="text-brand-500 hover:text-brand-400 transition-colors"
-          >
-            <Bookmark size={20} fill="currentColor" />
-          </button>
-        </div>
-      </div>
-    </Card>
-  );
+    text: content.text || undefined,
+    likeCount: content.likeCount,
+    commentCount: content.commentCount || 0,
+    viewCount: content.viewCount || 0,
+    isLiked: content.isLiked,
+    hasBookmarked: content.hasBookmarked,
+  };
 }
 
 export function SavedPostsView() {
+  const [selectedPost, setSelectedPost] = useState<MediaPost | null>(null);
+  const [openWithComments, setOpenWithComments] = useState(false);
+  const [openWithTip, setOpenWithTip] = useState(false);
+
   const { data, isLoading } = useQuery({
     queryKey: ['savedPosts'],
     queryFn: () => api.getSavedPosts(),
   });
 
-  const posts = data?.data || [];
+  // API retorna { data: [{ id, bookmarkedAt, content: {...} }] }
+  // Precisamos extrair o content de cada bookmark
+  const rawData = data?.data || [];
+  const posts = rawData.map((item: any) => ({
+    ...item.content,
+    bookmarkId: item.id,
+    bookmarkedAt: item.bookmarkedAt,
+  })) as Content[];
+
+  const handleOpenMedia = (post: Content, options?: { openComments?: boolean; openTip?: boolean }) => {
+    setSelectedPost(contentToMediaPost(post));
+    setOpenWithComments(options?.openComments || false);
+    setOpenWithTip(options?.openTip || false);
+  };
 
   return (
-    <div className="w-full pb-20 md:pb-0 animate-fade-in">
+    <div className="max-w-xl mx-auto pb-20 md:pb-0 animate-fade-in">
       <header className="mb-6 flex items-center gap-3 text-white">
         <div className="p-2 bg-purple-500/20 rounded-lg text-purple-500">
           <Bookmark size={24} />
@@ -123,8 +83,12 @@ export function SavedPostsView() {
         </div>
       ) : (
         <div>
-          {posts.map(post => (
-            <PostCard key={post.id} post={post} />
+          {posts.map((post) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              onOpenMedia={handleOpenMedia}
+            />
           ))}
 
           {posts.length === 0 && (
@@ -137,6 +101,20 @@ export function SavedPostsView() {
             </Card>
           )}
         </div>
+      )}
+
+      {/* Media Viewer Modal */}
+      {selectedPost && (
+        <MediaViewer
+          post={selectedPost}
+          onClose={() => {
+            setSelectedPost(null);
+            setOpenWithComments(false);
+            setOpenWithTip(false);
+          }}
+          initialShowComments={openWithComments}
+          initialShowTip={openWithTip}
+        />
       )}
     </div>
   );

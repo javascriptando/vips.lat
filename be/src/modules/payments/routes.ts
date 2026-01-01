@@ -8,6 +8,8 @@ import {
   createPPVPaymentSchema,
   createTipPaymentSchema,
   createProPlanPaymentSchema,
+  createPackPaymentSchema,
+  createMessagePPVPaymentSchema,
   listPaymentsSchema,
 } from './schemas';
 import * as paymentService from './service';
@@ -36,9 +38,9 @@ paymentRoutes.post('/subscription', requireAuth, paymentRateLimit, zValidator('j
 paymentRoutes.post('/ppv', requireAuth, paymentRateLimit, zValidator('json', createPPVPaymentSchema), async (c) => {
   try {
     const user = c.get('user')!;
-    const { contentId, cpfCnpj } = c.req.valid('json');
+    const { contentId, mediaIndex, cpfCnpj } = c.req.valid('json');
 
-    const result = await paymentService.createPPVPayment(user.id, contentId, cpfCnpj);
+    const result = await paymentService.createPPVPayment(user.id, contentId, mediaIndex, cpfCnpj);
 
     return c.json({
       message: 'Pagamento criado! Escaneie o QR Code.',
@@ -53,9 +55,9 @@ paymentRoutes.post('/ppv', requireAuth, paymentRateLimit, zValidator('json', cre
 paymentRoutes.post('/tip', requireAuth, paymentRateLimit, zValidator('json', createTipPaymentSchema), async (c) => {
   try {
     const user = c.get('user')!;
-    const { creatorId, amount, message, cpfCnpj } = c.req.valid('json');
+    const { creatorId, amount, message, contentId, cpfCnpj } = c.req.valid('json');
 
-    const result = await paymentService.createTipPayment(user.id, creatorId, amount, message, cpfCnpj);
+    const result = await paymentService.createTipPayment(user.id, creatorId, amount, message, contentId, cpfCnpj);
 
     return c.json({
       message: 'Gorjeta criada! Escaneie o QR Code.',
@@ -76,6 +78,40 @@ paymentRoutes.post('/pro', requireAuth, requireCreator, paymentRateLimit, zValid
 
     return c.json({
       message: 'Pagamento PRO criado! Escaneie o QR Code.',
+      ...result,
+    }, 201);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Erro' }, 400);
+  }
+});
+
+// POST /api/payments/pack
+paymentRoutes.post('/pack', requireAuth, paymentRateLimit, zValidator('json', createPackPaymentSchema), async (c) => {
+  try {
+    const user = c.get('user')!;
+    const { packId, messageId, cpfCnpj } = c.req.valid('json');
+
+    const result = await paymentService.createPackPayment(user.id, packId, messageId, cpfCnpj);
+
+    return c.json({
+      message: 'Pagamento criado! Escaneie o QR Code.',
+      ...result,
+    }, 201);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Erro' }, 400);
+  }
+});
+
+// POST /api/payments/message-ppv
+paymentRoutes.post('/message-ppv', requireAuth, paymentRateLimit, zValidator('json', createMessagePPVPaymentSchema), async (c) => {
+  try {
+    const user = c.get('user')!;
+    const { messageId, cpfCnpj } = c.req.valid('json');
+
+    const result = await paymentService.createMessagePPVPayment(user.id, messageId, cpfCnpj);
+
+    return c.json({
+      message: 'Pagamento criado! Escaneie o QR Code.',
       ...result,
     }, 201);
   } catch (error) {
@@ -115,6 +151,21 @@ paymentRoutes.get('/:id/status', requireAuth, async (c) => {
 
   if (!payment || payment.payerId !== user.id) {
     return c.json({ error: 'Pagamento não encontrado' }, 404);
+  }
+
+  // If still pending, check Asaas directly (useful when webhook isn't configured)
+  if (payment.status === 'pending' && payment.asaasPaymentId) {
+    try {
+      const asaasPayment = await paymentService.checkAndUpdatePaymentStatus(payment.id, payment.asaasPaymentId);
+      if (asaasPayment) {
+        return c.json({
+          status: asaasPayment.status,
+          paidAt: asaasPayment.paidAt,
+        });
+      }
+    } catch (error) {
+      console.error('Error checking Asaas payment status:', error);
+    }
   }
 
   return c.json({

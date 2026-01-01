@@ -55,6 +55,7 @@ export const contentPurchases = pgTable('content_purchases', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   contentId: uuid('content_id').notNull().references(() => contents.id, { onDelete: 'cascade' }),
+  mediaIndex: integer('media_index'), // null = content-level purchase, number = specific media item
   pricePaid: integer('price_paid').notNull(), // centavos
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
@@ -98,6 +99,56 @@ export const storyViews = pgTable('story_views', {
   index('story_views_user_id_idx').on(table.userId),
 ]);
 
+// Media Pack visibility enum
+export const packVisibilityEnum = pgEnum('pack_visibility', ['public', 'private']);
+
+// Media Packs - pacotes de mídia que podem ser vendidos no perfil ou via chat
+export const mediaPacks = pgTable('media_packs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  creatorId: uuid('creator_id').notNull().references(() => creators.id, { onDelete: 'cascade' }),
+
+  // Info
+  name: text('name').notNull(),
+  description: text('description'),
+  coverUrl: text('cover_url'), // Capa do pacote
+
+  // Media items
+  media: jsonb('media').$type<MediaItem[]>().default([]),
+
+  // Pricing
+  price: integer('price').notNull(), // centavos
+
+  // Visibility: public = aparece no perfil, private = só via chat
+  visibility: packVisibilityEnum('visibility').default('public').notNull(),
+
+  // Stats
+  salesCount: integer('sales_count').default(0).notNull(),
+
+  // Status
+  isActive: boolean('is_active').default(true).notNull(),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('media_packs_creator_id_idx').on(table.creatorId),
+  index('media_packs_visibility_idx').on(table.visibility),
+  index('media_packs_is_active_idx').on(table.isActive),
+]);
+
+// Compras de pacotes
+export const mediaPackPurchases = pgTable('media_pack_purchases', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  packId: uuid('pack_id').notNull().references(() => mediaPacks.id, { onDelete: 'cascade' }),
+  pricePaid: integer('price_paid').notNull(), // centavos
+  // Optional: purchased via message
+  messageId: uuid('message_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('media_pack_purchases_user_id_idx').on(table.userId),
+  index('media_pack_purchases_pack_id_idx').on(table.packId),
+]);
+
 // Types
 export interface MediaItem {
   path: string;
@@ -119,3 +170,6 @@ export type ContentPurchase = typeof contentPurchases.$inferSelect;
 export type Story = typeof stories.$inferSelect;
 export type NewStory = typeof stories.$inferInsert;
 export type StoryView = typeof storyViews.$inferSelect;
+export type MediaPack = typeof mediaPacks.$inferSelect;
+export type NewMediaPack = typeof mediaPacks.$inferInsert;
+export type MediaPackPurchase = typeof mediaPackPurchases.$inferSelect;

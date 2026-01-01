@@ -8,12 +8,21 @@ import type { RegisterInput, LoginInput } from './schemas';
 
 export async function register(input: RegisterInput) {
   // Verificar se email já existe
-  const existingUser = await db.query.users.findFirst({
+  const existingEmail = await db.query.users.findFirst({
     where: eq(users.email, input.email.toLowerCase()),
   });
 
-  if (existingUser) {
+  if (existingEmail) {
     throw new Error('Este email já está cadastrado');
+  }
+
+  // Verificar se username já existe
+  const existingUsername = await db.query.users.findFirst({
+    where: eq(users.username, input.username.toLowerCase()),
+  });
+
+  if (existingUsername) {
+    throw new Error('Este username já está em uso');
   }
 
   // Hash da senha
@@ -24,6 +33,7 @@ export async function register(input: RegisterInput) {
     .insert(users)
     .values({
       email: input.email.toLowerCase(),
+      username: input.username.toLowerCase(),
       passwordHash,
       name: input.name,
     })

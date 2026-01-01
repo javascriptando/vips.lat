@@ -1,10 +1,5 @@
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { env } from '@/config/env';
-import { generateId } from './utils';
+import { uploadToS3, uploadLargeToS3, deleteFromS3, generateS3Key, getPublicUrl } from './s3';
 import { ALLOWED_MIME_TYPES, LIMITS } from '@/config/constants';
-
-const UPLOAD_DIR = env.UPLOAD_DIR;
 
 interface UploadResult {
   path: string;
@@ -14,6 +9,9 @@ interface UploadResult {
 }
 
 type MediaType = 'image' | 'video' | 'avatar';
+
+// Use multipart upload for files larger than 10MB
+const MULTIPART_THRESHOLD = 10 * 1024 * 1024;
 
 export async function uploadFile(
   file: File,
@@ -35,40 +33,33 @@ export async function uploadFile(
 
   // Gerar path único
   const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
-  const filename = `${generateId()}.${ext}`;
-  const folder = type === 'avatar' ? 'avatars' : `${type}s`;
-  const relativePath = `${folder}/${ownerId}/${filename}`;
-  const fullPath = join(UPLOAD_DIR, relativePath);
+  const s3Type = type === 'avatar' ? 'avatar' : type;
+  const s3Key = generateS3Key(ownerId, s3Type, ext);
 
-  // Criar diretório se não existir
-  await mkdir(dirname(fullPath), { recursive: true });
-
-  // Salvar arquivo
+  // Upload para S3 (usar multipart para arquivos grandes)
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(fullPath, buffer);
+  const url = file.size > MULTIPART_THRESHOLD
+    ? await uploadLargeToS3(s3Key, buffer, file.type)
+    : await uploadToS3(s3Key, buffer, file.type);
 
   return {
-    path: relativePath,
-    url: `/uploads/${relativePath}`,
+    path: s3Key,
+    url,
     size: file.size,
     mimeType: file.type,
   };
 }
 
-export async function deleteFile(relativePath: string): Promise<void> {
-  const fullPath = join(UPLOAD_DIR, relativePath);
+export async function deleteFile(s3Key: string): Promise<void> {
   try {
-    await unlink(fullPath);
+    await deleteFromS3(s3Key);
   } catch (error) {
-    // Ignora erro se arquivo não existir
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.error(`Failed to delete file: ${fullPath}`, error);
-    }
+    console.error(`Failed to delete file from S3: ${s3Key}`, error);
   }
 }
 
-export function getFilePath(relativePath: string): string {
-  return join(UPLOAD_DIR, relativePath);
+export async function getFileUrl(s3Key: string): Promise<string> {
+  return getPublicUrl(s3Key);
 }
 
 export function isValidMediaType(mimeType: string, type: MediaType): boolean {

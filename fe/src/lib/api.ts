@@ -32,7 +32,18 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error: AxiosError<{ error: string }>) => {
-        const message = error.response?.data?.error || 'Erro de conexão';
+        let message = 'Erro de conexão';
+
+        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+          message = 'Tempo limite excedido. Tente novamente com um arquivo menor.';
+        } else if (error.response?.data?.error) {
+          message = error.response.data.error;
+        } else if (error.response?.status === 413) {
+          message = 'Arquivo muito grande para upload.';
+        } else if (error.response?.status === 500) {
+          message = 'Erro no servidor. Tente novamente.';
+        }
+
         return Promise.reject(new Error(message));
       }
     );
@@ -89,8 +100,8 @@ class ApiClient {
   }
 
   async updateProfile(data: { name?: string; username?: string }): Promise<User> {
-    const res = await this.client.put<User>('/users/me', data);
-    return res.data;
+    const res = await this.client.put<{ user: User }>('/users/me', data);
+    return res.data.user;
   }
 
   async uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
@@ -233,12 +244,24 @@ class ApiClient {
     return res.data;
   }
 
+  // Create story with pre-uploaded media (via chunked upload)
+  async createStoryWithMedia(data: {
+    mediaUrl: string;
+    mediaType: 'image' | 'video';
+    text?: string;
+  }): Promise<{ message: string; story: unknown }> {
+    const res = await this.client.post('/stories', data);
+    return res.data;
+  }
+
+  // Legacy: Create story with direct file upload (for small files)
   async createStory(file: File, text?: string): Promise<{ message: string; story: unknown }> {
     const formData = new FormData();
     formData.append('file', file);
     if (text) formData.append('text', text);
     const res = await this.client.post('/stories', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 5 * 60 * 1000, // 5 minutes for story uploads
     });
     return res.data;
   }
@@ -250,6 +273,37 @@ class ApiClient {
 
   async deleteStory(storyId: string): Promise<{ deleted: boolean }> {
     const res = await this.client.delete(`/stories/${storyId}`);
+    return res.data;
+  }
+
+  async getMyStories(): Promise<{
+    stories: Array<{
+      id: string;
+      mediaUrl: string;
+      mediaType: 'image' | 'video';
+      thumbnailUrl: string | null;
+      text: string | null;
+      viewCount: number;
+      expiresAt: string;
+      createdAt: string;
+    }>;
+  }> {
+    const res = await this.client.get('/stories/me');
+    return res.data;
+  }
+
+  async getStoryViewers(storyId: string, page = 1): Promise<{
+    data: Array<{
+      id: string;
+      viewedAt: string;
+      userId: string;
+      username: string;
+      name: string;
+      avatarUrl: string | null;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get(`/stories/${storyId}/viewers?page=${page}`);
     return res.data;
   }
 
@@ -311,6 +365,20 @@ class ApiClient {
 
   async canSendMessage(creatorId: string): Promise<{ allowed: boolean; reason?: string }> {
     const res = await this.client.get(`/messages/can-send/${creatorId}`);
+    return res.data;
+  }
+
+  async getOrCreateConversation(creatorId: string): Promise<{
+    id: string;
+    creatorId: string;
+    lastMessageAt: string | null;
+    lastMessagePreview: string | null;
+    creatorDisplayName: string;
+    creatorUsername: string;
+    creatorAvatarUrl: string | null;
+    creatorVerified: boolean;
+  }> {
+    const res = await this.client.post(`/messages/conversations/get-or-create/${creatorId}`);
     return res.data;
   }
 
@@ -446,8 +514,12 @@ class ApiClient {
   }
 
   async checkSubscription(creatorId: string): Promise<{ subscribed: boolean; subscription: Subscription | null }> {
-    const res = await this.client.get(`/subscriptions/check/${creatorId}`);
-    return res.data;
+    const res = await this.client.get<{ isSubscribed: boolean; subscription: Subscription | null }>(`/subscriptions/check/${creatorId}`);
+    // Map backend response to expected format
+    return {
+      subscribed: res.data.isSubscribed,
+      subscription: res.data.subscription,
+    };
   }
 
   async cancelSubscription(id: string): Promise<void> {
@@ -460,18 +532,42 @@ class ApiClient {
   }
 
   // Payments
-  async paySubscription(creatorId: string): Promise<PaymentResponse> {
-    const res = await this.client.post<PaymentResponse>('/payments/subscription', { creatorId });
+  async paySubscription(
+    creatorId: string,
+    duration: '1' | '3' | '6' | '12' = '1',
+    cpfCnpj?: string
+  ): Promise<PaymentResponse> {
+    const res = await this.client.post<PaymentResponse>('/payments/subscription', {
+      creatorId,
+      duration,
+      cpfCnpj,
+    });
     return res.data;
   }
 
-  async payPPV(contentId: string): Promise<PaymentResponse> {
-    const res = await this.client.post<PaymentResponse>('/payments/ppv', { contentId });
+  async payPPV(contentId: string, mediaIndex?: number, cpfCnpj?: string): Promise<PaymentResponse> {
+    const res = await this.client.post<PaymentResponse>('/payments/ppv', {
+      contentId,
+      mediaIndex,
+      cpfCnpj,
+    });
     return res.data;
   }
 
-  async sendTip(creatorId: string, amount: number, message?: string): Promise<PaymentResponse> {
-    const res = await this.client.post<PaymentResponse>('/payments/tip', { creatorId, amount, message });
+  async sendTip(
+    creatorId: string,
+    amount: number,
+    message?: string,
+    contentId?: string,
+    cpfCnpj?: string
+  ): Promise<PaymentResponse> {
+    const res = await this.client.post<PaymentResponse>('/payments/tip', {
+      creatorId,
+      amount,
+      message,
+      contentId,
+      cpfCnpj,
+    });
     return res.data;
   }
 
@@ -597,9 +693,191 @@ class ApiClient {
     return res.data;
   }
 
-  // PPV per media item
-  async purchaseMediaItem(contentId: string, mediaIndex: number): Promise<PaymentResponse> {
-    const res = await this.client.post<PaymentResponse>('/payments/media-ppv', { contentId, mediaIndex });
+  // Packs
+  async getMyPacks(params?: { page?: number; pageSize?: number }): Promise<{
+    data: Array<{
+      id: string;
+      name: string;
+      description: string | null;
+      coverUrl: string | null;
+      price: number;
+      visibility: 'public' | 'private';
+      salesCount: number;
+      isActive: boolean;
+      media: Array<{ url: string; type: 'image' | 'video'; thumbnailUrl?: string }>;
+      createdAt: string;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/packs/me', { params });
+    return res.data;
+  }
+
+  async getMyPacksAll(): Promise<{
+    packs: Array<{
+      id: string;
+      name: string;
+      description: string | null;
+      coverUrl: string | null;
+      price: number;
+      visibility: 'public' | 'private';
+      mediaCount: number;
+    }>;
+  }> {
+    const res = await this.client.get('/packs/me/all');
+    return res.data;
+  }
+
+  async createPack(data: {
+    name: string;
+    description?: string;
+    price: number;
+    visibility: 'public' | 'private';
+    media: Array<{
+      path: string;
+      url: string;
+      type: 'image' | 'video';
+      size: number;
+      mimeType: string;
+      thumbnailUrl?: string;
+    }>;
+    coverUrl?: string;
+  }): Promise<{ message: string; pack: unknown }> {
+    const res = await this.client.post('/packs', data);
+    return res.data;
+  }
+
+  async updatePack(packId: string, data: {
+    name?: string;
+    description?: string;
+    price?: number;
+    visibility?: 'public' | 'private';
+    isActive?: boolean;
+  }): Promise<{ pack: unknown }> {
+    const res = await this.client.put(`/packs/${packId}`, data);
+    return res.data;
+  }
+
+  async deletePack(packId: string): Promise<{ message: string }> {
+    const res = await this.client.delete(`/packs/${packId}`);
+    return res.data;
+  }
+
+  async getCreatorPacks(creatorId: string, params?: { page?: number; pageSize?: number }): Promise<{
+    data: Array<{
+      id: string;
+      name: string;
+      description: string | null;
+      coverUrl: string | null;
+      price: number;
+      mediaCount: number;
+      salesCount: number;
+      createdAt: string;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get(`/packs/creator/${creatorId}`, { params });
+    return res.data;
+  }
+
+  async getPack(packId: string): Promise<{
+    pack: {
+      id: string;
+      name: string;
+      description: string | null;
+      coverUrl: string | null;
+      price: number;
+      mediaCount: number;
+      salesCount: number;
+      hasPurchased: boolean;
+      media: Array<{ url: string; type: 'image' | 'video'; thumbnailUrl?: string }>;
+      creator: {
+        id: string;
+        displayName: string;
+        username: string;
+        avatarUrl: string | null;
+        verified: boolean;
+      } | null;
+      createdAt: string;
+    };
+  }> {
+    const res = await this.client.get(`/packs/${packId}`);
+    return res.data;
+  }
+
+  async getPurchasedPacks(params?: { page?: number; pageSize?: number }): Promise<{
+    data: Array<{
+      id: string;
+      name: string;
+      description: string | null;
+      coverUrl: string | null;
+      media: Array<{ url: string; type: 'image' | 'video'; thumbnailUrl?: string }>;
+      purchasedAt: string;
+      creator: {
+        id: string;
+        displayName: string;
+        username: string;
+        avatarUrl: string | null;
+      } | null;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/packs/purchased', { params });
+    return res.data;
+  }
+
+  async payPack(packId: string, messageId?: string, cpfCnpj?: string): Promise<PaymentResponse> {
+    const res = await this.client.post<PaymentResponse>('/payments/pack', { packId, messageId, cpfCnpj });
+    return res.data;
+  }
+
+  async payMessagePPV(messageId: string, cpfCnpj?: string): Promise<PaymentResponse> {
+    const res = await this.client.post<PaymentResponse>('/payments/message-ppv', { messageId, cpfCnpj });
+    return res.data;
+  }
+
+  // Send message as creator with optional pack/PPV
+  async sendMessageAsCreatorWithMedia(conversationId: string, data: {
+    text?: string;
+    mediaUrl?: string;
+    mediaType?: 'image' | 'video';
+    thumbnailUrl?: string;
+    ppvPrice?: number;
+    packId?: string;
+  }): Promise<{ message: unknown }> {
+    const res = await this.client.post(`/messages/conversations/${conversationId}/send`, data);
+    return res.data;
+  }
+
+  // Upload media for messages (creator only)
+  async uploadMedia(formData: FormData): Promise<{ url: string; thumbnailUrl: string | null; type: 'image' | 'video' }> {
+    const res = await this.client.post('/messages/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60 * 60 * 1000, // 60 minutes for large uploads (up to 2.5GB)
+    });
+    return res.data;
+  }
+
+  // Get exclusive content (purchased PPV messages - collector items)
+  async getExclusiveContent(params?: { page?: number; pageSize?: number }): Promise<{
+    data: Array<{
+      id: string;
+      mediaUrl: string;
+      mediaType: 'image' | 'video';
+      thumbnailUrl: string | null;
+      purchasedAt: string;
+      pricePaid: number;
+      creator: {
+        id: string;
+        displayName: string;
+        username: string;
+        avatarUrl: string | null;
+        isVerified: boolean;
+      };
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/messages/exclusive', { params });
     return res.data;
   }
 }

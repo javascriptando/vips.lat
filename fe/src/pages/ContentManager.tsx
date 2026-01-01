@@ -1,14 +1,38 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Heart, MessageCircle, Eye, DollarSign, Lock, Image as ImageIcon, Video, Upload, Trash2, Play, Layers, GripVertical, LockKeyhole, Unlock, X, Camera, Clock } from 'lucide-react';
+import { Plus, Heart, MessageCircle, Eye, Lock, Image as ImageIcon, Grid, Upload, Trash2, Play, Layers, GripVertical, LockKeyhole, Unlock, X, Camera, Clock, Package, Globe, EyeOff } from 'lucide-react';
 import { Card, Button, Badge, ResponsiveModal } from '@/components/ui';
+import { StoryViewer, type StoryCreator } from '@/components/media';
+import { MediaViewer, type MediaPost } from '@/components/MediaViewer';
 import { api } from '@/lib/api';
 import { formatCurrency, formatNumber, resolveMediaUrl } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useChunkedUpload, formatFileSize } from '@/hooks/useChunkedUpload';
 import { toast } from 'sonner';
 import type { Content, ContentMedia } from '@/types';
+
+// Pack type from API
+interface PackData {
+  id: string;
+  name: string;
+  description: string | null;
+  coverUrl: string | null;
+  price: number;
+  visibility: 'public' | 'private';
+  salesCount: number;
+  isActive: boolean;
+  media: Array<{ url: string; type: 'image' | 'video'; thumbnailUrl?: string }>;
+  createdAt: string;
+}
+
+// Pack media item
+interface PackMediaItem {
+  id: string;
+  file: File;
+  url: string;
+  type: 'image' | 'video';
+}
 
 type Visibility = 'public' | 'subscribers' | 'ppv';
 
@@ -185,11 +209,34 @@ export function ContentManager() {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const [isCreatingPost, setIsCreatingPost] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'post' | 'story' | 'pack'; id: string } | null>(null);
+  const [storyViewerOpen, setStoryViewerOpen] = useState(false);
+  const [selectedPackView, setSelectedPackView] = useState<MediaPost | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storyInputRef = useRef<HTMLInputElement>(null);
 
-  // Chunked upload hook with progress
+  // Pack state
+  const [showPackModal, setShowPackModal] = useState(false);
+  const [packName, setPackName] = useState('');
+  const [packDescription, setPackDescription] = useState('');
+  const [packPrice, setPackPrice] = useState(990); // Default R$9,90
+  const [packVisibility, setPackVisibility] = useState<'public' | 'private'>('public');
+  const [packMediaItems, setPackMediaItems] = useState<PackMediaItem[]>([]);
+  const [isCreatingPack, setIsCreatingPack] = useState(false);
+  const packFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Chunked upload for packs
+  const packUpload = useChunkedUpload({
+    onError: (error) => toast.error(error),
+  });
+
+  // Chunked upload hook with progress (for posts)
   const chunkedUpload = useChunkedUpload({
+    onError: (error) => toast.error(error),
+  });
+
+  // Chunked upload hook for stories
+  const storyUpload = useChunkedUpload({
     onError: (error) => toast.error(error),
   });
 
@@ -198,6 +245,23 @@ export function ContentManager() {
     queryFn: () => api.getCreatorContent(creator!.id),
     enabled: !!creator?.id,
   });
+
+  const { data: storiesData } = useQuery({
+    queryKey: ['myStories'],
+    queryFn: () => api.getMyStories(),
+    enabled: !!creator?.id,
+  });
+
+  const myStories = storiesData?.stories || [];
+
+  // Packs query
+  const { data: packsData, isLoading: isLoadingPacks } = useQuery({
+    queryKey: ['myPacks'],
+    queryFn: () => api.getMyPacks(),
+    enabled: !!creator?.id,
+  });
+
+  const myPacks = packsData?.data || [];
 
   // Handle publish: upload files with chunks, then create content
   const handlePublish = useCallback(async () => {
@@ -234,7 +298,11 @@ export function ContentManager() {
         media: mediaData,
       });
 
+      // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ['myContent'] });
+      queryClient.invalidateQueries({ queryKey: ['feed'] });
+      queryClient.invalidateQueries({ queryKey: ['exploreFeed'] });
+      queryClient.invalidateQueries({ queryKey: ['creatorContent'] });
       toast.success('Post criado com sucesso!');
       resetForm();
     } catch (error) {
@@ -249,6 +317,29 @@ export function ContentManager() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['myContent'] });
       toast.success('Post removido!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const deleteStory = useMutation({
+    mutationFn: (id: string) => api.deleteStory(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myStories'] });
+      queryClient.invalidateQueries({ queryKey: ['stories'] });
+      toast.success('Story removido!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const deletePack = useMutation({
+    mutationFn: (id: string) => api.deletePack(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myPacks'] });
+      toast.success('Pacote removido!');
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -272,8 +363,100 @@ export function ContentManager() {
     setStoryFile(null);
     setStoryPreviewUrl(null);
     setIsCreatingStory(false);
+    storyUpload.reset();
     setShowStoryModal(false);
-  }, []);
+  }, [storyUpload]);
+
+  // Pack functions
+  const resetPackForm = useCallback(() => {
+    setPackName('');
+    setPackDescription('');
+    setPackPrice(990);
+    setPackVisibility('public');
+    setPackMediaItems([]);
+    setIsCreatingPack(false);
+    packUpload.reset();
+    setShowPackModal(false);
+  }, [packUpload]);
+
+  const handlePackFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length === 0) return;
+
+    selectedFiles.forEach((file) => {
+      const isVideo = file.type.startsWith('video/');
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const newItem: PackMediaItem = {
+          id: generateId(),
+          file,
+          url: reader.result as string,
+          type: isVideo ? 'video' : 'image',
+        };
+        setPackMediaItems((prev) => [...prev, newItem]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removePackMediaItem = (id: string) => {
+    setPackMediaItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleCreatePack = async () => {
+    if (!packName.trim()) {
+      toast.error('Nome do pacote é obrigatório');
+      return;
+    }
+    if (packMediaItems.length === 0) {
+      toast.error('Adicione pelo menos uma mídia ao pacote');
+      return;
+    }
+    if (packPrice < 100) {
+      toast.error('Preço mínimo é R$1,00');
+      return;
+    }
+
+    try {
+      setIsCreatingPack(true);
+
+      // Upload all files
+      const files = packMediaItems.map((item) => item.file);
+      const uploadedFiles = await packUpload.upload(files);
+
+      if (uploadedFiles.length === 0 && files.length > 0) {
+        setIsCreatingPack(false);
+        return;
+      }
+
+      // Map uploaded files to media data
+      const mediaData = uploadedFiles.map((file) => ({
+        path: file.path,
+        url: file.url,
+        type: file.type,
+        size: file.size,
+        mimeType: file.mimeType,
+      }));
+
+      // Create pack
+      await api.createPack({
+        name: packName.trim(),
+        description: packDescription.trim() || undefined,
+        price: packPrice,
+        visibility: packVisibility,
+        media: mediaData,
+        coverUrl: uploadedFiles[0]?.url, // Use first media as cover
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['myPacks'] });
+      toast.success('Pacote criado com sucesso!');
+      resetPackForm();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao criar pacote');
+    } finally {
+      setIsCreatingPack(false);
+    }
+  };
 
   const handleStoryFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -300,15 +483,63 @@ export function ContentManager() {
 
     try {
       setIsCreatingStory(true);
-      await api.createStory(storyFile, storyText || undefined);
+
+      // Upload file using chunked upload (same as posts)
+      const uploadedFiles = await storyUpload.upload([storyFile]);
+
+      if (uploadedFiles.length === 0) {
+        // Upload was cancelled or failed
+        setIsCreatingStory(false);
+        return;
+      }
+
+      const uploadedFile = uploadedFiles[0];
+
+      // Create story with pre-uploaded media
+      await api.createStoryWithMedia({
+        mediaUrl: uploadedFile.url,
+        mediaType: uploadedFile.type,
+        text: storyText || undefined,
+      });
+
       toast.success('Story criado! Expira em 24 horas.');
+      // Invalidate both stories queries
       queryClient.invalidateQueries({ queryKey: ['stories'] });
+      queryClient.invalidateQueries({ queryKey: ['myStories'] });
       resetStoryForm();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Erro ao criar story');
     } finally {
       setIsCreatingStory(false);
     }
+  };
+
+  // Transform myStories to StoryCreator format for StoryViewer
+  const myStoriesAsCreator = useMemo((): StoryCreator[] => {
+    if (!creator || myStories.length === 0) return [];
+    return [{
+      id: creator.id,
+      displayName: creator.displayName,
+      username: creator.username,
+      avatarUrl: creator.avatarUrl || null,
+      isVerified: creator.isVerified || false,
+      hasUnviewed: false, // Creator has seen all their own stories
+      stories: myStories.map(story => ({
+        id: story.id,
+        mediaUrl: story.mediaUrl,
+        mediaType: story.mediaType,
+        thumbnailUrl: story.thumbnailUrl || null,
+        text: story.text || null,
+        viewCount: story.viewCount,
+        expiresAt: story.expiresAt,
+        createdAt: story.createdAt,
+        isViewed: true, // Creator has seen all their own stories
+      })),
+    }];
+  }, [creator, myStories]);
+
+  const handleOpenStory = () => {
+    setStoryViewerOpen(true);
   };
 
   // Calculate total file size for display
@@ -412,6 +643,9 @@ export function ContentManager() {
           <Button variant="secondary" onClick={() => setShowStoryModal(true)} className="flex items-center gap-2">
             <Camera size={20} /> Story
           </Button>
+          <Button variant="secondary" onClick={() => setShowPackModal(true)} className="flex items-center gap-2">
+            <Package size={20} /> Pacote
+          </Button>
           <Button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2">
             <Plus size={20} /> Novo Post
           </Button>
@@ -427,6 +661,211 @@ export function ContentManager() {
         className="hidden"
       />
 
+      {/* Pack hidden input */}
+      <input
+        type="file"
+        ref={packFileInputRef}
+        onChange={handlePackFileChange}
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+      />
+
+      {/* Active Stories Management */}
+      {myStories.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Camera size={20} className="text-brand-500" />
+            Stories Ativos ({myStories.length})
+          </h2>
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
+            {myStories.map((story) => {
+              const expiresAt = new Date(story.expiresAt);
+              const hoursLeft = Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60)));
+              const url = resolveMediaUrl(story.thumbnailUrl || story.mediaUrl) || '';
+
+              return (
+                <div key={story.id} className="relative flex-shrink-0 group">
+                  <button
+                    onClick={handleOpenStory}
+                    className="w-24 h-36 rounded-xl overflow-hidden bg-dark-800 border-2 border-brand-500/50 hover:border-brand-500 transition-colors"
+                  >
+                    {story.mediaType === 'video' ? (
+                      <div className="relative w-full h-full">
+                        <video src={url} className="w-full h-full object-cover" muted />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Play size={20} className="text-white fill-white" />
+                        </div>
+                      </div>
+                    ) : (
+                      <img src={url} alt="" className="w-full h-full object-cover" />
+                    )}
+                  </button>
+
+                  {/* Stats overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 rounded-b-xl pointer-events-none">
+                    <div className="flex items-center justify-between text-[10px] text-white">
+                      <span className="flex items-center gap-0.5">
+                        <Eye size={10} /> {formatNumber(story.viewCount)}
+                      </span>
+                      <span className="flex items-center gap-0.5">
+                        <Clock size={10} /> {hoursLeft}h
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget({ type: 'story', id: story.id });
+                    }}
+                    className="absolute -top-1 -right-1 p-1 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                  >
+                    <X size={12} className="text-white" />
+                  </button>
+                </div>
+              );
+            })}
+
+            {/* Add Story Button */}
+            <button
+              onClick={() => setShowStoryModal(true)}
+              className="w-24 h-36 flex-shrink-0 rounded-xl border-2 border-dashed border-dark-600 hover:border-brand-500 transition-colors flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-brand-500"
+            >
+              <Plus size={24} />
+              <span className="text-xs">Novo</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Packs Management - Gift Package Style */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Package size={20} className="text-brand-500" />
+            Pacotes de Mídia ({myPacks.length})
+          </h2>
+          <Button variant="secondary" size="sm" onClick={() => setShowPackModal(true)} className="flex items-center gap-1.5">
+            <Plus size={16} /> Novo Pacote
+          </Button>
+        </div>
+
+        {isLoadingPacks ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="bg-dark-800 rounded-2xl aspect-square animate-pulse" />
+            ))}
+          </div>
+        ) : myPacks.length === 0 ? (
+          <div className="bg-dark-800/50 border border-dark-700 rounded-2xl p-6 text-center">
+            <Package size={32} className="mx-auto mb-2 text-gray-600" />
+            <p className="text-gray-500 text-sm">Nenhum pacote criado</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {myPacks.map((pack: PackData) => {
+              const mediaCount = pack.media?.length || 0;
+
+              // Convert pack to MediaPost format for viewing
+              const openPackViewer = () => {
+                if (!pack.media || pack.media.length === 0) {
+                  toast.error('Este pacote não tem mídias');
+                  return;
+                }
+                const mediaPost: MediaPost = {
+                  id: pack.id,
+                  media: pack.media.map((m, idx) => ({
+                    url: m.url,
+                    type: m.type,
+                    thumbnailUrl: m.thumbnailUrl,
+                    order: idx,
+                    hasAccess: true,
+                  })),
+                  hasAccess: true,
+                  visibility: pack.visibility,
+                  creator: {
+                    id: creator?.id || '',
+                    displayName: creator?.displayName || '',
+                    username: creator?.username || '',
+                    avatarUrl: creator?.avatarUrl || undefined,
+                    isVerified: creator?.isVerified,
+                  },
+                  text: pack.description || pack.name,
+                  likeCount: 0,
+                  commentCount: 0,
+                  viewCount: pack.salesCount,
+                };
+                setSelectedPackView(mediaPost);
+              };
+
+              return (
+                <div
+                  key={pack.id}
+                  onClick={openPackViewer}
+                  className="group cursor-pointer"
+                >
+                  {/* Gift Box Style Card */}
+                  <div className="relative aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-600/20 via-dark-800 to-dark-900 border-2 border-brand-500/30 hover:border-brand-500/60 transition-all shadow-lg hover:shadow-brand-500/20 hover:scale-[1.02]">
+                    {/* Gift ribbon - vertical */}
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-full bg-gradient-to-b from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+                    {/* Gift ribbon - horizontal */}
+                    <div className="absolute top-1/3 left-0 w-full h-6 bg-gradient-to-r from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+                    {/* Ribbon bow */}
+                    <div className="absolute top-[calc(33%-12px)] left-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-brand-500/30 border-2 border-brand-500/50 flex items-center justify-center">
+                      <Package size={18} className="text-brand-400" />
+                    </div>
+
+                    {/* Content */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-4 pt-16">
+                      <h3 className="font-bold text-white text-center text-sm leading-tight line-clamp-2 mb-2">{pack.name}</h3>
+                      <div className="flex items-center gap-1 text-gray-400 text-xs">
+                        <Layers size={12} />
+                        <span>{mediaCount} {mediaCount === 1 ? 'item' : 'itens'}</span>
+                      </div>
+                    </div>
+
+                    {/* Top badges */}
+                    <div className="absolute top-2 left-2">
+                      <Badge
+                        variant={pack.visibility === 'public' ? 'success' : 'warning'}
+                        className="text-[10px] px-1.5 py-0.5"
+                      >
+                        {pack.visibility === 'public' ? 'Público' : 'Privado'}
+                      </Badge>
+                    </div>
+
+                    {/* Delete button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget({ type: 'pack', id: pack.id });
+                      }}
+                      className="absolute top-2 right-2 p-1.5 bg-red-500/90 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    >
+                      <Trash2 size={12} className="text-white" />
+                    </button>
+
+                    {/* Bottom info */}
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-6">
+                      <div className="flex items-center justify-between">
+                        <span className="text-brand-400 font-bold">{formatCurrency(pack.price)}</span>
+                        <span className="text-gray-400 text-xs">{pack.salesCount} vendas</span>
+                      </div>
+                      {!pack.isActive && (
+                        <Badge variant="default" className="mt-1 text-[10px]">Inativo</Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+          </div>
+        )}
+      </div>
+
       {/* Create Story Modal */}
       <ResponsiveModal
         open={showStoryModal}
@@ -435,14 +874,53 @@ export function ContentManager() {
         size="md"
         showCloseButton={!isCreatingStory}
         footer={
-          <div className="flex gap-3">
-            <Button variant="secondary" onClick={resetStoryForm} disabled={isCreatingStory}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCreateStory} isLoading={isCreatingStory} disabled={!storyFile}>
-              Publicar Story
-            </Button>
-          </div>
+          isCreatingStory ? (
+            <div className="space-y-4">
+              {/* Progress Bar */}
+              <div className="relative">
+                <div className="h-3 bg-dark-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand-500 to-purple-500 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${storyUpload.overallProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Progress Info */}
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                  <span>
+                    {storyUpload.overallProgress < 100
+                      ? `Enviando ${storyFile ? formatFileSize(storyFile.size) : ''}...`
+                      : 'Finalizando...'}
+                  </span>
+                </div>
+                <span className="text-brand-500 font-bold text-lg">{storyUpload.overallProgress}%</span>
+              </div>
+
+              {/* Cancel Button */}
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  storyUpload.cancel();
+                  setIsCreatingStory(false);
+                }}
+                className="w-full"
+              >
+                Cancelar Upload
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <Button variant="secondary" onClick={resetStoryForm}>
+                Cancelar
+              </Button>
+              <Button onClick={handleCreateStory} disabled={!storyFile}>
+                Publicar Story
+              </Button>
+            </div>
+          )
         }
       >
         <div className="space-y-4">
@@ -511,6 +989,199 @@ export function ContentManager() {
         </div>
       </ResponsiveModal>
 
+      {/* Create Pack Modal */}
+      <ResponsiveModal
+        open={showPackModal}
+        onClose={isCreatingPack ? () => {} : resetPackForm}
+        title={isCreatingPack ? 'Criando pacote...' : 'Criar Pacote de Mídia'}
+        size="xl"
+        showCloseButton={!isCreatingPack}
+        footer={
+          isCreatingPack ? (
+            <div className="space-y-4">
+              <div className="relative">
+                <div className="h-3 bg-dark-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand-500 to-purple-500 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${packUpload.overallProgress}%` }}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                  <span>
+                    {packUpload.overallProgress < 100 ? 'Enviando mídias...' : 'Finalizando...'}
+                  </span>
+                </div>
+                <span className="text-brand-500 font-bold text-lg">{packUpload.overallProgress}%</span>
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  packUpload.cancel();
+                  setIsCreatingPack(false);
+                }}
+                className="w-full"
+              >
+                Cancelar Upload
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <Button variant="secondary" onClick={resetPackForm} className="flex-1">
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleCreatePack}
+                disabled={!packName.trim() || packMediaItems.length === 0}
+                className="flex-1"
+              >
+                Criar Pacote
+              </Button>
+            </div>
+          )
+        }
+      >
+        <div className="space-y-5">
+          {/* Pack Name */}
+          <div>
+            <label className="text-sm font-medium text-gray-300 block mb-2">Nome do Pacote *</label>
+            <input
+              type="text"
+              value={packName}
+              onChange={(e) => setPackName(e.target.value)}
+              placeholder="Ex: Ensaio Exclusivo, Fotos do Verão..."
+              className="w-full bg-dark-900 border border-dark-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500 transition-all"
+              maxLength={100}
+            />
+          </div>
+
+          {/* Pack Description */}
+          <div>
+            <label className="text-sm font-medium text-gray-300 block mb-2">Descrição (opcional)</label>
+            <textarea
+              value={packDescription}
+              onChange={(e) => setPackDescription(e.target.value)}
+              placeholder="Descreva o conteúdo do pacote..."
+              rows={2}
+              className="w-full bg-dark-900 border border-dark-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500 transition-all resize-none"
+              maxLength={500}
+            />
+          </div>
+
+          {/* Pack Price */}
+          <div>
+            <label className="text-sm font-medium text-gray-300 block mb-2">Preço *</label>
+            <input
+              type="text"
+              value={formatCurrency(packPrice)}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/\D/g, '');
+                setPackPrice(parseInt(raw) || 0);
+              }}
+              className="w-full bg-dark-900 border border-dark-700 rounded-xl px-4 py-3 text-white font-bold focus:outline-none focus:border-brand-500 transition-all"
+              placeholder="R$ 0,00"
+            />
+            <p className="text-xs text-gray-500 mt-1">Preço mínimo: R$ 1,00</p>
+          </div>
+
+          {/* Pack Visibility */}
+          <div>
+            <label className="text-sm font-medium text-gray-300 block mb-2">Visibilidade</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPackVisibility('public')}
+                className={`px-4 py-4 rounded-xl text-sm font-medium transition-colors text-left ${
+                  packVisibility === 'public'
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-dark-700 text-gray-400 hover:bg-dark-600'
+                }`}
+              >
+                <div className="flex items-center gap-2 font-semibold text-base">
+                  <Globe size={18} />
+                  Público
+                </div>
+                <div className="text-xs opacity-80 mt-1">Visível no seu perfil para compra</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPackVisibility('private')}
+                className={`px-4 py-4 rounded-xl text-sm font-medium transition-colors text-left ${
+                  packVisibility === 'private'
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-dark-700 text-gray-400 hover:bg-dark-600'
+                }`}
+              >
+                <div className="flex items-center gap-2 font-semibold text-base">
+                  <EyeOff size={18} />
+                  Privado
+                </div>
+                <div className="text-xs opacity-80 mt-1">Apenas via mensagem direta</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Pack Media */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-gray-300">Mídias do Pacote *</label>
+              {packMediaItems.length > 0 && (
+                <span className="text-xs text-gray-500">{packMediaItems.length} item(s)</span>
+              )}
+            </div>
+
+            {packMediaItems.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => packFileInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-dark-600 rounded-xl p-8 text-center hover:border-brand-500 transition-colors"
+              >
+                <Upload size={40} className="mx-auto mb-3 text-gray-500" />
+                <p className="text-gray-300 font-medium">Clique para adicionar fotos ou vídeos</p>
+                <p className="text-gray-500 text-sm mt-1">Adicione as mídias que farão parte deste pacote</p>
+              </button>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+                  {packMediaItems.map((item) => (
+                    <div key={item.id} className="relative aspect-square rounded-xl overflow-hidden bg-dark-800 group">
+                      {item.type === 'video' ? (
+                        <div className="relative w-full h-full">
+                          <video src={item.url} className="w-full h-full object-cover" muted />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="p-2 bg-black/50 rounded-full">
+                              <Play size={16} className="text-white fill-white" />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <img src={item.url} alt="" className="w-full h-full object-cover" />
+                      )}
+                      <button
+                        onClick={() => removePackMediaItem(item.id)}
+                        className="absolute top-1 right-1 p-1.5 bg-red-500/90 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X size={12} className="text-white" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => packFileInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-dark-600 rounded-xl p-3 text-center hover:border-brand-500 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus size={18} className="text-gray-500" />
+                  <span className="text-gray-400 text-sm">Adicionar mais mídia</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </ResponsiveModal>
+
       {/* Create Post Modal */}
       <ResponsiveModal
         open={showCreateModal}
@@ -521,39 +1192,7 @@ export function ContentManager() {
         footer={
           isUploading ? (
             <div className="space-y-4">
-              {/* Per-file progress */}
-              {chunkedUpload.progress.length > 0 && (
-                <div className="space-y-2 max-h-32 overflow-y-auto">
-                  {chunkedUpload.progress.map((file, idx) => (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-400 truncate max-w-[200px]">{file.fileName}</span>
-                        <span className={`font-medium ${
-                          file.status === 'complete' ? 'text-green-500' :
-                          file.status === 'error' ? 'text-red-500' :
-                          file.status === 'uploading' ? 'text-brand-500' : 'text-gray-500'
-                        }`}>
-                          {file.status === 'complete' ? '✓' :
-                           file.status === 'error' ? '✗' :
-                           file.status === 'uploading' ? `${file.progress}%` : 'Aguardando'}
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-dark-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-200 ${
-                            file.status === 'complete' ? 'bg-green-500' :
-                            file.status === 'error' ? 'bg-red-500' :
-                            'bg-gradient-to-r from-brand-500 to-purple-500'
-                          }`}
-                          style={{ width: `${file.progress}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Overall Progress Bar */}
+              {/* Main Progress Bar */}
               <div className="relative">
                 <div className="h-3 bg-dark-700 rounded-full overflow-hidden">
                   <div
@@ -575,6 +1214,22 @@ export function ContentManager() {
                 </div>
                 <span className="text-brand-500 font-bold text-lg">{chunkedUpload.overallProgress}%</span>
               </div>
+
+              {/* File status list (compact) */}
+              {chunkedUpload.progress.length > 1 && (
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {chunkedUpload.progress.map((file, idx) => (
+                    <span key={idx} className={`px-2 py-1 rounded-full ${
+                      file.status === 'complete' ? 'bg-green-500/20 text-green-400' :
+                      file.status === 'error' ? 'bg-red-500/20 text-red-400' :
+                      file.status === 'uploading' ? 'bg-brand-500/20 text-brand-400' :
+                      'bg-dark-700 text-gray-500'
+                    }`}>
+                      {file.status === 'complete' ? '✓' : file.status === 'uploading' ? '↑' : '○'} {file.fileName.slice(0, 15)}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               {/* Cancel Button */}
               <Button
@@ -742,90 +1397,159 @@ export function ContentManager() {
         </div>
       </ResponsiveModal>
 
-      {/* Content Grid */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-dark-800 rounded-2xl aspect-[4/3] animate-pulse" />
-          ))}
+      {/* Posts Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Grid size={20} className="text-brand-500" />
+            Posts ({posts.length})
+          </h2>
+          <Button variant="secondary" size="sm" onClick={() => setShowCreateModal(true)} className="flex items-center gap-1.5">
+            <Plus size={16} /> Novo Post
+          </Button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {posts.map((post: Content) => (
-            <Card key={post.id} padding="none" className="overflow-hidden group">
-              <div
-                className="relative aspect-video cursor-pointer"
-                onClick={() => navigate(`/post/${post.id}`)}
-              >
-                {post.media?.[0] ? (
-                  <MediaThumbnail media={post.media[0]} />
-                ) : (
-                  <div className="w-full h-full bg-dark-700 flex items-center justify-center">
-                    <ImageIcon size={32} className="text-dark-500" />
-                  </div>
-                )}
 
-                {/* Multiple media indicator */}
-                {post.media.length > 1 && (
-                  <div className="absolute top-2 left-12 bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-md flex items-center gap-1">
-                    <Layers size={12} /> {post.media.length}
-                  </div>
-                )}
-
-                <div className="absolute top-2 right-2 flex gap-2">
-                  {post.visibility === 'ppv' && (
-                    <div className="bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-md flex items-center gap-1">
-                      <Lock size={12} /> {formatCurrency(post.ppvPrice || 0)}
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="bg-dark-800 rounded-2xl aspect-[4/3] animate-pulse" />
+            ))}
+          </div>
+        ) : posts.length === 0 ? (
+          <div className="bg-dark-800/50 border border-dark-700 rounded-2xl p-6 text-center">
+            <ImageIcon size={32} className="mx-auto mb-2 text-gray-600" />
+            <p className="text-gray-500 text-sm">Nenhum post publicado</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {posts.map((post: Content) => (
+              <Card key={post.id} padding="none" className="overflow-hidden group">
+                <div
+                  className="relative aspect-video cursor-pointer"
+                  onClick={() => navigate(`/post/${post.id}`)}
+                >
+                  {post.media?.[0] ? (
+                    <MediaThumbnail media={post.media[0]} />
+                  ) : (
+                    <div className="w-full h-full bg-dark-700 flex items-center justify-center">
+                      <ImageIcon size={32} className="text-dark-500" />
                     </div>
                   )}
-                  <Badge
-                    variant={post.visibility === 'public' ? 'success' : post.visibility === 'subscribers' ? 'warning' : 'default'}
-                  >
-                    {post.visibility === 'public' ? 'Público' : post.visibility === 'subscribers' ? 'Assinantes' : 'PPV'}
-                  </Badge>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (confirm('Tem certeza que deseja excluir este post?')) {
-                      deletePost.mutate(post.id);
-                    }
-                  }}
-                  className="absolute top-2 left-2 p-2 bg-red-500/80 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Trash2 size={16} className="text-white" />
-                </button>
-              </div>
-              <div className="p-4">
-                <p className="text-sm text-gray-300 line-clamp-2 mb-4">{post.text || 'Sem descrição'}</p>
-                <div className="flex items-center justify-between text-xs text-gray-400 border-t border-dark-700 pt-3">
-                  <span className="flex items-center gap-1">
-                    <Heart size={14} /> {formatNumber(post.likeCount || 0)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <MessageCircle size={14} /> {formatNumber(post.commentCount || 0)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Eye size={14} /> {formatNumber(post.viewCount || 0)}
-                  </span>
-                  <span className="flex items-center gap-1 font-bold text-green-500">
-                    <DollarSign size={14} /> {formatCurrency((post as any).revenue || 0)}
-                  </span>
-                </div>
-              </div>
-            </Card>
-          ))}
 
-          {posts.length === 0 && (
-            <Card className="col-span-full text-center py-12">
-              <Video size={48} className="mx-auto mb-4 text-dark-500" />
-              <p className="text-gray-400">Você ainda não tem conteúdo.</p>
-              <Button onClick={() => setShowCreateModal(true)} className="mt-4">
-                <Plus size={20} /> Criar Primeiro Post
-              </Button>
-            </Card>
-          )}
-        </div>
+                  {/* Multiple media indicator */}
+                  {post.media.length > 1 && (
+                    <div className="absolute top-2 left-12 bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-md flex items-center gap-1">
+                      <Layers size={12} /> {post.media.length}
+                    </div>
+                  )}
+
+                  <div className="absolute top-2 right-2 flex gap-2">
+                    {post.visibility === 'ppv' && (
+                      <div className="bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-md flex items-center gap-1">
+                        <Lock size={12} /> {formatCurrency(post.ppvPrice || 0)}
+                      </div>
+                    )}
+                    <Badge
+                      variant={post.visibility === 'public' ? 'success' : post.visibility === 'subscribers' ? 'warning' : 'default'}
+                    >
+                      {post.visibility === 'public' ? 'Público' : post.visibility === 'subscribers' ? 'Assinantes' : 'PPV'}
+                    </Badge>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget({ type: 'post', id: post.id });
+                    }}
+                    className="absolute top-2 left-2 p-2 bg-red-500/80 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 size={16} className="text-white" />
+                  </button>
+                </div>
+                <div className="p-4">
+                  <p className="text-sm text-gray-300 line-clamp-2 mb-3">{post.text || 'Sem descrição'}</p>
+                  <div className="flex items-center justify-between text-xs text-gray-400 border-t border-dark-700 pt-3">
+                    <span className="flex items-center gap-1">
+                      <Heart size={14} /> {formatNumber(post.likeCount || 0)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <MessageCircle size={14} /> {formatNumber(post.commentCount || 0)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Eye size={14} /> {formatNumber(post.viewCount || 0)}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      <ResponsiveModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title={
+          deleteTarget?.type === 'story' ? 'Excluir Story' :
+          deleteTarget?.type === 'pack' ? 'Excluir Pacote' : 'Excluir Post'
+        }
+        footer={
+          <div className="flex gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => setDeleteTarget(null)}
+              className="flex-1"
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (deleteTarget) {
+                  if (deleteTarget.type === 'story') {
+                    deleteStory.mutate(deleteTarget.id);
+                  } else if (deleteTarget.type === 'pack') {
+                    deletePack.mutate(deleteTarget.id);
+                  } else {
+                    deletePost.mutate(deleteTarget.id);
+                  }
+                  setDeleteTarget(null);
+                }
+              }}
+              isLoading={deletePost.isPending || deleteStory.isPending || deletePack.isPending}
+              className="flex-1 bg-red-500 hover:bg-red-600"
+            >
+              <Trash2 size={16} className="mr-1" />
+              Excluir
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-gray-300 text-center">
+          Tem certeza que deseja excluir este {
+            deleteTarget?.type === 'story' ? 'story' :
+            deleteTarget?.type === 'pack' ? 'pacote' : 'post'
+          }?
+          <br />
+          <span className="text-sm text-gray-500">Esta ação não pode ser desfeita.</span>
+        </p>
+      </ResponsiveModal>
+
+      {/* Story Viewer */}
+      {storyViewerOpen && myStoriesAsCreator.length > 0 && (
+        <StoryViewer
+          creators={myStoriesAsCreator}
+          initialCreatorIndex={0}
+          onClose={() => setStoryViewerOpen(false)}
+        />
+      )}
+
+      {/* Pack Media Viewer */}
+      {selectedPackView && (
+        <MediaViewer
+          post={selectedPackView}
+          onClose={() => setSelectedPackView(null)}
+        />
       )}
     </div>
   );

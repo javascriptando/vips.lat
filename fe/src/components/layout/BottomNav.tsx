@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Home, Search, PlusSquare, Heart, User, LayoutDashboard, DollarSign, Settings, MessageCircle } from 'lucide-react';
+import { Home, Search, PlusSquare, FolderHeart, User, LayoutDashboard, DollarSign, Settings, MessageCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -46,7 +46,7 @@ export function BottomNav() {
     { path: '/feed', icon: Home, label: 'Feed' },
     { path: '/explore', icon: Search, label: 'Explorar' },
     { path: '/messages', icon: MessageCircle, label: 'Chat', badge: unreadCount },
-    { path: '/saved', icon: Heart, label: 'Salvos' },
+    { path: '/collection', icon: FolderHeart, label: 'Coleção' },
     { path: '/profile', icon: User, label: 'Perfil' },
   ];
 

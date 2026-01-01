@@ -33,8 +33,10 @@ authRoutes.post(
           id: user.id,
           email: user.email,
           name: user.name,
+          username: user.username,
           role: user.role,
           emailVerified: user.emailVerified,
+          isCreator: user.role === 'creator',
         },
       }, 201);
     } catch (error) {
@@ -66,6 +68,7 @@ authRoutes.post(
           avatarUrl: user.avatarUrl,
           role: user.role,
           emailVerified: user.emailVerified,
+          isCreator: user.role === 'creator',
         },
       });
     } catch (error) {
@@ -104,6 +107,7 @@ authRoutes.get('/me', async (c) => {
       avatarUrl: user.avatarUrl,
       role: user.role,
       emailVerified: user.emailVerified,
+      isCreator: user.role === 'creator',
     },
   });
 });

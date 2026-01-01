@@ -42,6 +42,7 @@ export interface Content {
   viewCount: number;
   createdAt: string;
   media: ContentMedia[];
+  mediaCount?: { photos: number; videos: number; total: number };
   creator: Creator;
   isLiked?: boolean;
   hasAccess?: boolean;
@@ -56,6 +57,7 @@ export interface ContentMedia {
   ppvPrice?: number; // centavos - preço PPV individual desta mídia
   order?: number; // ordem no carrossel
   duration?: number; // duração em segundos (para vídeos)
+  hasAccess?: boolean; // se o usuário tem acesso a esta mídia específica
 }
 
 export interface Subscription {
@@ -71,12 +73,16 @@ export interface Subscription {
 
 export interface Payment {
   id: string;
-  userId: string;
-  type: 'subscription' | 'ppv' | 'tip' | 'pro';
+  payerId?: string;
+  userId?: string;
+  creatorId?: string;
+  type: 'subscription' | 'ppv' | 'tip' | 'pro_plan';
   status: 'pending' | 'confirmed' | 'failed' | 'refunded' | 'expired';
   amount: number;
+  pixFee: number;
   platformFee: number;
   creatorAmount: number;
+  description?: string;
   createdAt: string;
 }
 

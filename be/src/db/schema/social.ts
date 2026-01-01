@@ -143,6 +143,14 @@ export const messages = pgTable('messages', {
   // Mídia opcional (imagem, vídeo)
   mediaUrl: text('media_url'),
   mediaType: text('media_type'), // 'image' | 'video'
+  thumbnailUrl: text('thumbnail_url'), // thumbnail para vídeos
+
+  // PPV media in message (creator sends paid content)
+  ppvPrice: integer('ppv_price'), // centavos - se definido, mídia é paga
+  isPurchased: boolean('is_purchased').default(false).notNull(), // se o destinatário comprou
+
+  // Pack attachment (attach existing pack to message)
+  packId: uuid('pack_id'), // referência a media_packs (sem FK para evitar dependência circular)
 
   // Status
   isRead: boolean('is_read').default(false).notNull(),

@@ -2,12 +2,17 @@ import { db } from '@/db';
 import { notifications, users } from '@/db/schema';
 import type { NewNotification } from '@/db/schema/social';
 import { eq, desc, and, sql } from 'drizzle-orm';
+import { sendInvalidation } from '@/lib/websocket';
 
 export async function createNotification(data: NewNotification) {
   const [notification] = await db
     .insert(notifications)
     .values(data)
     .returning();
+
+  // Enviar atualização em tempo real via WebSocket
+  sendInvalidation(data.userId, ['notifications', 'unread-count']);
+
   return notification;
 }
 

@@ -23,6 +23,9 @@ import { favoriteRoutes } from '@/modules/favorites/routes';
 import messageRoutes from '@/modules/messages/routes';
 import { analyticsRoutes } from '@/modules/analytics/routes';
 import { storyRoutes } from '@/modules/stories/routes';
+import { uploadRoutes } from '@/modules/upload/routes';
+import packRoutes from '@/modules/packs/routes';
+import { secureMediaRoutes } from '@/modules/secureMedia/routes';
 
 // Create Hono app
 const app = new Hono<{ Variables: AppVariables }>();
@@ -47,14 +50,42 @@ app.use('/api/*', cors({
   exposeHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
 }));
 
-// CORS for uploads (static files)
-app.use('/uploads/*', cors({
-  origin: [env.FRONTEND_URL, 'http://localhost:3000', 'http://localhost:4000'],
-  allowMethods: ['GET', 'OPTIONS'],
-}));
+// CORS for uploads (static files) - must allow cross-origin image loading
+app.use('/uploads/*', async (c, next) => {
+  // Set CORS headers
+  c.res.headers.set('Access-Control-Allow-Origin', '*');
+  c.res.headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  // Critical: Allow cross-origin resource loading
+  c.res.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
 
-// Auth middleware for API routes
-app.use('/api/*', authMiddleware);
+  if (c.req.method === 'OPTIONS') {
+    return new Response(null, { status: 204 });
+  }
+
+  await next();
+});
+
+// CORS for secure-media (allows cross-origin image/video loading)
+app.use('/api/secure-media/*', async (c, next) => {
+  c.res.headers.set('Access-Control-Allow-Origin', '*');
+  c.res.headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  c.res.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+
+  if (c.req.method === 'OPTIONS') {
+    return new Response(null, { status: 204 });
+  }
+
+  await next();
+});
+
+// Auth middleware for API routes (except secure-media which uses token auth)
+app.use('/api/*', async (c, next) => {
+  // Skip auth middleware for secure-media routes (they use JWT token auth)
+  if (c.req.path.startsWith('/api/secure-media')) {
+    return next();
+  }
+  return authMiddleware(c, next);
+});
 
 // Rate limiting for API routes
 app.use('/api/*', apiRateLimit);
@@ -82,6 +113,9 @@ app.route('/api/favorites', favoriteRoutes);
 app.route('/api/messages', messageRoutes);
 app.route('/api/analytics', analyticsRoutes);
 app.route('/api/stories', storyRoutes);
+app.route('/api/upload', uploadRoutes);
+app.route('/api/packs', packRoutes);
+app.route('/api/secure-media', secureMediaRoutes);
 
 // Media routes (uploads)
 app.route('/uploads', mediaRoutes);

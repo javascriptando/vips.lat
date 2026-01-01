@@ -13,7 +13,7 @@ export function MainLayout() {
   const isFullHeightPage = location.pathname === '/messages';
 
   // Pages that need wide layout (dashboard, content manager, etc)
-  const isWideLayout = ['/dashboard', '/content', '/earnings', '/subscribers', '/settings', '/explore', '/saved', '/profile', '/purchased', '/messages'].some(
+  const isWideLayout = ['/dashboard', '/content', '/earnings', '/subscribers', '/settings', '/explore', '/collection', '/profile', '/purchased', '/messages', '/feed', '/subscriptions'].some(
     path => location.pathname.startsWith(path)
   );
 

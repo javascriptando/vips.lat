@@ -1,8 +1,8 @@
 import { useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { UserPlus, Check } from 'lucide-react';
-import { Avatar, Button, Card } from '@/components/ui';
+import { Card } from '@/components/ui';
+import { CreatorCard } from '@/components/cards';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -31,8 +31,9 @@ export function Suggestions({ variant = 'sidebar', limit = 5 }: SuggestionsProps
     queryKey: ['featuredCreators', pageSize],
     queryFn: ({ pageParam = 1 }) => api.getFeaturedCreators({ page: pageParam, pageSize }),
     getNextPageParam: (lastPage) => {
-      if (lastPage.pagination.page < lastPage.pagination.totalPages) {
-        return lastPage.pagination.page + 1;
+      const pagination = lastPage?.pagination;
+      if (pagination && pagination.page < pagination.totalPages) {
+        return pagination.page + 1;
       }
       return undefined;
     },
@@ -41,9 +42,16 @@ export function Suggestions({ variant = 'sidebar', limit = 5 }: SuggestionsProps
 
   const followMutation = useMutation({
     mutationFn: (creatorId: string) => api.toggleFavorite(creatorId),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Invalidate suggestions
       queryClient.invalidateQueries({ queryKey: ['featuredCreators'] });
+      queryClient.invalidateQueries({ queryKey: ['recentCreators'] });
+      // Invalidate followed creators and stories
       queryClient.invalidateQueries({ queryKey: ['favoriteCreators'] });
+      queryClient.invalidateQueries({ queryKey: ['stories'] });
+      // Invalidate feed (now shows content from new followed creator)
+      queryClient.invalidateQueries({ queryKey: ['feed'] });
+      toast.success(data.favorited ? 'Seguindo!' : 'Deixou de seguir');
     },
     onError: () => {
       toast.error('Erro ao seguir criador');
@@ -89,39 +97,28 @@ export function Suggestions({ variant = 'sidebar', limit = 5 }: SuggestionsProps
   if (creators.length === 0) return null;
 
   if (variant === 'inline') {
-    // Mobile inline version - horizontal avatar carousel
+    // Mobile/Desktop inline version - horizontal cards with follow button
     return (
-      <div className="mb-6">
-        <h3 className="text-sm font-semibold text-gray-400 mb-3 px-1">Sugestões para você</h3>
+      <div className="mb-6 -mx-4 px-4">
+        <h3 className="text-sm font-semibold text-gray-400 mb-3">Sugestões para você</h3>
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex gap-3 overflow-x-auto no-scrollbar pb-2 -mx-1 px-1"
+          className="flex gap-3 overflow-x-auto no-scrollbar pb-2"
         >
-          {creators.map((creator: Creator) => (
-            <Link
+          {creators.slice(0, limit).map((creator: Creator) => (
+            <CreatorCard
               key={creator.id}
-              to={`/creator/${creator.username}`}
-              className="flex-shrink-0 flex flex-col items-center w-16"
-            >
-              <div className="relative">
-                <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-br from-brand-500 via-purple-500 to-pink-500">
-                  <Avatar
-                    src={creator.avatarUrl}
-                    name={creator.displayName}
-                    size="lg"
-                    className="w-full h-full border-2 border-dark-900"
-                  />
-                </div>
-              </div>
-              <p className="text-[11px] text-gray-300 truncate w-full text-center mt-1.5">
-                {creator.displayName?.split(' ')[0]}
-              </p>
-            </Link>
+              creator={creator}
+              variant="inline"
+              showFollowButton={isAuthenticated}
+              isFollowPending={followMutation.isPending}
+              onFollow={() => followMutation.mutate(creator.id)}
+            />
           ))}
           {/* Loading indicator */}
           {isFetchingNextPage && (
-            <div className="flex-shrink-0 w-14 h-14 flex items-center justify-center">
+            <div className="flex-shrink-0 w-40 h-32 flex items-center justify-center">
               <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
             </div>
           )}
@@ -139,41 +136,14 @@ export function Suggestions({ variant = 'sidebar', limit = 5 }: SuggestionsProps
         </h3>
         <div className="space-y-4">
           {creators.map((creator: Creator) => (
-            <div key={creator.id} className="flex items-center gap-3">
-              <Link to={`/creator/${creator.username}`}>
-                <Avatar
-                  src={creator.avatarUrl}
-                  name={creator.displayName}
-                  size="md"
-                  className="w-12 h-12"
-                />
-              </Link>
-              <div className="flex-1 min-w-0">
-                <Link
-                  to={`/creator/${creator.username}`}
-                  className="block font-medium text-white hover:underline truncate"
-                >
-                  {creator.displayName}
-                </Link>
-                <p className="text-sm text-gray-500 truncate">@{creator.username}</p>
-              </div>
-              {isAuthenticated && (
-                <Button
-                  size="sm"
-                  variant={creator.isFollowing ? 'secondary' : 'primary'}
-                  onClick={() => followMutation.mutate(creator.id)}
-                  disabled={followMutation.isPending}
-                  className="flex-shrink-0"
-                >
-                  {creator.isFollowing ? <Check size={16} /> : <UserPlus size={16} />}
-                </Button>
-              )}
-              {!isAuthenticated && (
-                <Link to="/">
-                  <Button size="sm">Ver</Button>
-                </Link>
-              )}
-            </div>
+            <CreatorCard
+              key={creator.id}
+              creator={creator}
+              variant="sidebar"
+              showFollowButton={isAuthenticated}
+              isFollowPending={followMutation.isPending}
+              onFollow={() => followMutation.mutate(creator.id)}
+            />
           ))}
         </div>
         <Link

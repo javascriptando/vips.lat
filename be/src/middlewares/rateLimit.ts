@@ -42,26 +42,29 @@ export function rateLimit(options: RateLimitOptions) {
 }
 
 // Rate limits pré-configurados
+// Valores mais altos para desenvolvimento
+const isDev = process.env.NODE_ENV === 'development';
+
 export const apiRateLimit = rateLimit({
-  limit: 100,
+  limit: isDev ? 1000 : 100,
   windowSeconds: 60,
   keyPrefix: 'api',
 });
 
 export const authRateLimit = rateLimit({
-  limit: 5,
-  windowSeconds: 60 * 15, // 15 minutos
+  limit: isDev ? 100 : 10,
+  windowSeconds: isDev ? 60 : 60 * 15, // 1 min em dev, 15 min em prod
   keyPrefix: 'auth',
 });
 
 export const uploadRateLimit = rateLimit({
-  limit: 10,
+  limit: isDev ? 100 : 10,
   windowSeconds: 60,
   keyPrefix: 'upload',
 });
 
 export const paymentRateLimit = rateLimit({
-  limit: 10,
+  limit: isDev ? 100 : 10,
   windowSeconds: 60,
   keyPrefix: 'payment',
 });

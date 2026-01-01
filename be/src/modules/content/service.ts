@@ -3,15 +3,13 @@ import { contents, likes, contentPurchases, creators, subscriptions, users, book
 import type { MediaItem } from '@/db/schema/content';
 import { eq, desc, sql, and, inArray } from 'drizzle-orm';
 import { uploadFile, deleteFile } from '@/lib/storage';
+import { broadcastContentCreated, notifyNewLike, broadcastLike, broadcastComment } from '@/lib/websocket';
 import type { CreateContentInput, UpdateContentInput, ListContentInput } from './schemas';
 
-// Normalize media URLs to use relative paths
+// Ensure media array is valid (keeping full S3 URLs)
 function normalizeMediaUrls(media: MediaItem[] | null): MediaItem[] {
   if (!media || !Array.isArray(media)) return [];
-  return media.map(item => ({
-    ...item,
-    url: item.url.replace(/^https?:\/\/[^\/]+/, ''),
-  }));
+  return media;
 }
 
 export async function createContent(creatorId: string, input: CreateContentInput, files?: File[]) {
@@ -51,6 +49,59 @@ export async function createContent(creatorId: string, input: CreateContentInput
     .set({ postCount: sql`${creators.postCount} + 1`, updatedAt: new Date() })
     .where(eq(creators.id, creatorId));
 
+  // Broadcast para atualizar feeds em tempo real
+  broadcastContentCreated(creatorId, content.id);
+
+  return content;
+}
+
+// Create content with pre-uploaded media (from chunked upload)
+export async function createContentWithMedia(
+  creatorId: string,
+  input: CreateContentInput,
+  media: Array<{
+    path: string;
+    url: string;
+    size: number;
+    mimeType: string;
+    type: 'image' | 'video';
+    isPPV?: boolean;
+    ppvPrice?: number;
+  }>
+) {
+  const mediaItems: MediaItem[] = media.map((m, index) => ({
+    path: m.path,
+    url: m.url,
+    type: m.type,
+    size: m.size,
+    mimeType: m.mimeType,
+    order: index,
+    ppvPrice: m.isPPV ? m.ppvPrice : undefined,
+  }));
+
+  const [content] = await db
+    .insert(contents)
+    .values({
+      creatorId,
+      type: input.type,
+      visibility: input.visibility,
+      text: input.text,
+      media: mediaItems,
+      ppvPrice: input.visibility === 'ppv' ? input.ppvPrice : null,
+      isPublished: true,
+      publishedAt: new Date(),
+    })
+    .returning();
+
+  // Incrementar contador de posts
+  await db
+    .update(creators)
+    .set({ postCount: sql`${creators.postCount} + 1`, updatedAt: new Date() })
+    .where(eq(creators.id, creatorId));
+
+  // Broadcast para atualizar feeds em tempo real
+  broadcastContentCreated(creatorId, content.id);
+
   return content;
 }
 
@@ -61,11 +112,15 @@ export async function getContentById(contentId: string, userId?: string) {
 
   if (!content) return null;
 
-  // Verificar se usuário tem acesso
+  // Verificar se usuário tem acesso ao conteúdo
   let hasAccess = content.visibility === 'public';
   let hasPurchased = false;
   let hasLiked = false;
   let hasBookmarked = false;
+  let isOwner = false;
+
+  // Get all purchases for this content (content-level and per-media)
+  let userPurchases: { mediaIndex: number | null }[] = [];
 
   if (userId) {
     // Verificar bookmark
@@ -79,7 +134,19 @@ export async function getContentById(contentId: string, userId?: string) {
       where: and(eq(likes.userId, userId), eq(likes.contentId, contentId)),
     });
     hasLiked = !!like;
+
+    // Get all purchases for this user/content
+    userPurchases = await db
+      .select({ mediaIndex: contentPurchases.mediaIndex })
+      .from(contentPurchases)
+      .where(and(
+        eq(contentPurchases.userId, userId),
+        eq(contentPurchases.contentId, contentId)
+      ));
   }
+
+  // Check content-level purchase (mediaIndex = null)
+  const hasContentPurchase = userPurchases.some(p => p.mediaIndex === null);
 
   if (userId && !hasAccess) {
     // Verificar assinatura
@@ -94,15 +161,9 @@ export async function getContentById(contentId: string, userId?: string) {
       hasAccess = !!sub;
     }
 
-    // Verificar compra PPV
+    // Verificar compra PPV (content-level)
     if (content.visibility === 'ppv') {
-      const purchase = await db.query.contentPurchases.findFirst({
-        where: and(
-          eq(contentPurchases.userId, userId),
-          eq(contentPurchases.contentId, contentId)
-        ),
-      });
-      hasPurchased = !!purchase;
+      hasPurchased = hasContentPurchase;
       hasAccess = hasPurchased;
     }
   }
@@ -118,6 +179,7 @@ export async function getContentById(contentId: string, userId?: string) {
     const creatorUser = await db.query.users.findFirst({ where: eq(users.id, creator.userId) });
     if (creatorUser) {
       creatorInfo = {
+        id: creator.id,
         displayName: creator.displayName,
         bio: creator.bio,
         isPro: creator.isPro,
@@ -131,16 +193,45 @@ export async function getContentById(contentId: string, userId?: string) {
     // Verificar se é o próprio criador
     if (userId && creator.userId === userId) {
       hasAccess = true;
+      isOwner = true;
     }
   }
+
+  // Count media types (always available for stats, even when locked)
+  const rawMedia = content.media as MediaItem[] | null;
+  const mediaCount = {
+    photos: rawMedia?.filter(m => m.type === 'image').length || 0,
+    videos: rawMedia?.filter(m => m.type === 'video').length || 0,
+    total: rawMedia?.length || 0,
+  };
+
+  // Process media with per-item access control
+  const purchasedMediaIndexes = new Set(
+    userPurchases.filter(p => p.mediaIndex !== null).map(p => p.mediaIndex as number)
+  );
+
+  const processedMedia = hasAccess
+    ? normalizeMediaUrls(rawMedia).map((item, index) => {
+        const itemHasPPV = item.ppvPrice && item.ppvPrice > 0;
+        const itemPurchased = purchasedMediaIndexes.has(index) || hasContentPurchase;
+        const itemHasAccess = isOwner || !itemHasPPV || itemPurchased;
+
+        return {
+          ...item,
+          url: itemHasAccess ? item.url : '', // Hide URL if not purchased
+          hasAccess: itemHasAccess,
+        };
+      })
+    : []; // Hide all media if no content-level access
 
   return {
     ...content,
     hasAccess,
     hasPurchased,
-    hasLiked,
+    isLiked: hasLiked,
     hasBookmarked,
-    media: hasAccess ? normalizeMediaUrls(content.media) : [], // Esconder mídia se não tem acesso
+    media: processedMedia,
+    mediaCount,
     creator: creatorInfo,
   };
 }
@@ -283,15 +374,41 @@ export async function likeContent(contentId: string, userId: string) {
     where: and(eq(likes.contentId, contentId), eq(likes.userId, userId)),
   });
 
+  let newLikeCount: number;
+
   if (existing) {
     await db.delete(likes).where(eq(likes.id, existing.id));
-    await db.update(contents).set({ likeCount: sql`${contents.likeCount} - 1` }).where(eq(contents.id, contentId));
-    return { liked: false };
+    const [updated] = await db
+      .update(contents)
+      .set({ likeCount: sql`${contents.likeCount} - 1` })
+      .where(eq(contents.id, contentId))
+      .returning({ likeCount: contents.likeCount });
+    newLikeCount = updated?.likeCount ?? 0;
+    return { liked: false, likeCount: newLikeCount };
   }
 
   await db.insert(likes).values({ contentId, userId });
-  await db.update(contents).set({ likeCount: sql`${contents.likeCount} + 1` }).where(eq(contents.id, contentId));
-  return { liked: true };
+  const [updated] = await db
+    .update(contents)
+    .set({ likeCount: sql`${contents.likeCount} + 1` })
+    .where(eq(contents.id, contentId))
+    .returning({ likeCount: contents.likeCount });
+  newLikeCount = updated?.likeCount ?? 0;
+
+  // Get user info and content for notifications
+  const [content, user] = await Promise.all([
+    db.query.contents.findFirst({ where: eq(contents.id, contentId) }),
+    db.query.users.findFirst({ where: eq(users.id, userId) }),
+  ]);
+
+  if (content && user) {
+    // Notify creator
+    notifyNewLike(content.creatorId, contentId, userId);
+    // Broadcast to all viewers for real-time effect
+    broadcastLike(contentId, userId, user.name || user.username || 'Anônimo');
+  }
+
+  return { liked: true, likeCount: newLikeCount };
 }
 
 export async function incrementViewCount(contentId: string) {
@@ -382,31 +499,75 @@ export async function getExploreFeed(
     userBookmarks = new Set(userBookmarksList.map(b => b.contentId));
   }
 
-  const processedContent = contentList.map(content => ({
-    id: content.id,
-    creatorId: content.creatorId,
-    type: content.type,
-    visibility: content.visibility,
-    text: content.text,
-    media: normalizeMediaUrls(content.media as MediaItem[]),
-    viewCount: content.viewCount,
-    likeCount: content.likeCount,
-    publishedAt: content.publishedAt,
-    createdAt: content.createdAt,
-    hasAccess: true,
-    hasLiked: userLikes.has(content.id),
-    hasBookmarked: userBookmarks.has(content.id),
-    creator: {
-      displayName: content.creatorDisplayName,
-      bio: content.creatorBio,
-      coverUrl: content.creatorCoverUrl,
-      isPro: content.creatorIsPro,
-      verified: content.creatorVerified,
-      subscriberCount: content.creatorSubscriberCount,
-      username: content.creatorUsername,
-      avatarUrl: content.creatorAvatarUrl,
-    },
-  }));
+  // Get per-media purchases for the user (for PPV items in public content)
+  let userMediaPurchases = new Map<string, Set<number>>();
+  if (userId) {
+    const contentIds = contentList.map(c => c.id);
+    if (contentIds.length > 0) {
+      const purchases = await db
+        .select({ contentId: contentPurchases.contentId, mediaIndex: contentPurchases.mediaIndex })
+        .from(contentPurchases)
+        .where(and(
+          eq(contentPurchases.userId, userId),
+          inArray(contentPurchases.contentId, contentIds)
+        ));
+
+      for (const p of purchases) {
+        if (!userMediaPurchases.has(p.contentId)) {
+          userMediaPurchases.set(p.contentId, new Set());
+        }
+        if (p.mediaIndex !== null) {
+          userMediaPurchases.get(p.contentId)!.add(p.mediaIndex);
+        }
+      }
+    }
+  }
+
+  const processedContent = contentList.map(content => {
+    const rawMedia = normalizeMediaUrls(content.media as MediaItem[]);
+    const purchasedIndexes = userMediaPurchases.get(content.id) || new Set<number>();
+    const hasContentPurchase = purchasedIndexes.has(-1) || userMediaPurchases.get(content.id)?.size === 0 && userMediaPurchases.has(content.id);
+
+    // Process per-media PPV for public content
+    const processedMedia = rawMedia.map((item, index) => {
+      const itemHasPPV = item.ppvPrice && item.ppvPrice > 0;
+      const itemPurchased = purchasedIndexes.has(index) || hasContentPurchase;
+      const itemHasAccess = !itemHasPPV || itemPurchased;
+
+      return {
+        ...item,
+        url: itemHasAccess ? item.url : '', // Hide URL if not purchased
+        hasAccess: itemHasAccess,
+      };
+    });
+
+    return {
+      id: content.id,
+      creatorId: content.creatorId,
+      type: content.type,
+      visibility: content.visibility,
+      text: content.text,
+      media: processedMedia,
+      viewCount: content.viewCount,
+      likeCount: content.likeCount,
+      publishedAt: content.publishedAt,
+      createdAt: content.createdAt,
+      hasAccess: true,
+      isLiked: userLikes.has(content.id),
+      hasBookmarked: userBookmarks.has(content.id),
+      creator: {
+        id: content.creatorId,
+        displayName: content.creatorDisplayName,
+        bio: content.creatorBio,
+        coverUrl: content.creatorCoverUrl,
+        isPro: content.creatorIsPro,
+        verified: content.creatorVerified,
+        subscriberCount: content.creatorSubscriberCount,
+        username: content.creatorUsername,
+        avatarUrl: content.creatorAvatarUrl,
+      },
+    };
+  });
 
   return {
     data: processedContent,
@@ -456,6 +617,7 @@ export async function getTrendingContent(limit = 20) {
     publishedAt: content.publishedAt,
     hasAccess: true,
     creator: {
+      id: content.creatorId,
       displayName: content.creatorDisplayName,
       username: content.creatorUsername,
       avatarUrl: content.creatorAvatarUrl,
@@ -502,31 +664,39 @@ export async function getPurchasedContent(userId: string, page = 1, pageSize = 2
     .from(contentPurchases)
     .where(eq(contentPurchases.userId, userId));
 
-  const processedContent = purchased.map(content => ({
-    id: content.id,
-    creatorId: content.creatorId,
-    type: content.type,
-    visibility: content.visibility,
-    text: content.text,
-    media: normalizeMediaUrls(content.media as MediaItem[]),
-    ppvPrice: content.ppvPrice,
-    viewCount: content.viewCount,
-    likeCount: content.likeCount,
-    commentCount: content.commentCount,
-    publishedAt: content.publishedAt,
-    createdAt: content.createdAt,
-    hasAccess: true,
-    hasPurchased: true,
-    hasLiked: false,
-    hasBookmarked: false,
-    creator: {
-      id: content.creatorId,
-      displayName: content.creatorDisplayName,
-      username: content.creatorUsername,
-      avatar: content.creatorAvatarUrl,
-      isVerified: content.creatorVerified,
-    },
-  }));
+  const processedContent = purchased.map(content => {
+    // Mark all media items as accessible since user purchased this content
+    const mediaWithAccess = normalizeMediaUrls(content.media as MediaItem[]).map(m => ({
+      ...m,
+      hasAccess: true,
+    }));
+
+    return {
+      id: content.id,
+      creatorId: content.creatorId,
+      type: content.type,
+      visibility: content.visibility,
+      text: content.text,
+      media: mediaWithAccess,
+      ppvPrice: content.ppvPrice,
+      viewCount: content.viewCount,
+      likeCount: content.likeCount,
+      commentCount: content.commentCount,
+      publishedAt: content.publishedAt,
+      createdAt: content.createdAt,
+      hasAccess: true,
+      hasPurchased: true,
+      isLiked: false,
+      hasBookmarked: false,
+      creator: {
+        id: content.creatorId,
+        displayName: content.creatorDisplayName,
+        username: content.creatorUsername,
+        avatarUrl: content.creatorAvatarUrl,
+        isVerified: content.creatorVerified,
+      },
+    };
+  });
 
   return {
     data: processedContent,

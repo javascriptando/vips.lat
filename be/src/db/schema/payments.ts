@@ -8,7 +8,8 @@ export const paymentTypeEnum = pgEnum('payment_type', [
   'subscription',
   'ppv',
   'tip',
-  'pro_plan'
+  'pro_plan',
+  'pack'
 ]);
 
 export const paymentStatusEnum = pgEnum('payment_status', [

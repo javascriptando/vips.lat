@@ -1,6 +1,7 @@
 import { db } from '@/db';
 import { stories, storyViews, creators, users, favorites, subscriptions } from '@/db/schema';
 import { eq, and, gt, lt, desc, sql, inArray } from 'drizzle-orm';
+import { broadcastStoryCreated, broadcastStoryDeleted } from '@/lib/websocket';
 
 const STORY_DURATION_HOURS = 24;
 
@@ -25,18 +26,22 @@ export async function createStory(
     expiresAt,
   }).returning();
 
+  // Broadcast to all connected users
+  broadcastStoryCreated(creatorId, story.id);
+
   return story;
 }
 
 export async function getActiveStoriesByCreator(creatorId: string) {
   const now = new Date();
 
+  // Order by createdAt ASC so oldest stories appear first (1, 2, 3)
   return db.query.stories.findMany({
     where: and(
       eq(stories.creatorId, creatorId),
       gt(stories.expiresAt, now)
     ),
-    orderBy: [desc(stories.createdAt)],
+    orderBy: [stories.createdAt],
   });
 }
 
@@ -67,6 +72,7 @@ export async function getStoriesFromFollowedCreators(userId: string) {
   }
 
   // Get active stories from followed creators with creator info
+  // Order by createdAt ASC so oldest stories appear first (1, 2, 3)
   const storiesWithCreators = await db
     .select({
       id: stories.id,
@@ -90,7 +96,7 @@ export async function getStoriesFromFollowedCreators(userId: string) {
       inArray(stories.creatorId, creatorIds),
       gt(stories.expiresAt, now)
     ))
-    .orderBy(desc(stories.createdAt));
+    .orderBy(stories.createdAt);
 
   // Check which stories the user has viewed
   const storyIds = storiesWithCreators.map(s => s.id);
@@ -126,6 +132,7 @@ export async function getStoriesFromFollowedCreators(userId: string) {
       isViewed: boolean;
     }>;
     hasUnviewed: boolean;
+    latestStoryAt: Date; // Track most recent story for sorting
   }>();
 
   for (const story of storiesWithCreators) {
@@ -140,6 +147,7 @@ export async function getStoriesFromFollowedCreators(userId: string) {
         isVerified: story.isVerified,
         stories: [],
         hasUnviewed: false,
+        latestStoryAt: story.createdAt,
       });
     }
 
@@ -156,19 +164,26 @@ export async function getStoriesFromFollowedCreators(userId: string) {
       isViewed,
     });
 
+    // Update latest story timestamp (stories come in ASC order, so last one is newest)
+    if (story.createdAt > creator.latestStoryAt) {
+      creator.latestStoryAt = story.createdAt;
+    }
+
     if (!isViewed) {
       creator.hasUnviewed = true;
     }
   }
 
-  // Sort creators: unviewed first, then by most recent story
+  // Sort creators:
+  // 1. Unviewed first
+  // 2. Within each group: by most recent story posted (newest first)
   return Array.from(creatorsMap.values()).sort((a, b) => {
+    // First priority: unviewed creators come first
     if (a.hasUnviewed !== b.hasUnviewed) {
       return a.hasUnviewed ? -1 : 1;
     }
-    const aLatest = a.stories[0]?.createdAt.getTime() || 0;
-    const bLatest = b.stories[0]?.createdAt.getTime() || 0;
-    return bLatest - aLatest;
+    // Second priority: most recent story (descending - newest first)
+    return b.latestStoryAt.getTime() - a.latestStoryAt.getTime();
   });
 }
 
@@ -210,6 +225,10 @@ export async function deleteStory(storyId: string, creatorId: string) {
   }
 
   await db.delete(stories).where(eq(stories.id, storyId));
+
+  // Broadcast deletion to all connected users
+  broadcastStoryDeleted(storyId);
+
   return { deleted: true };
 }
 

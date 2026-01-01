@@ -17,6 +17,13 @@ const envSchema = z.object({
   UPLOAD_DIR: z.string().default('./uploads'),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().default(500),
 
+  // S3 (Wasabi)
+  S3_ACCESS_KEY: z.string(),
+  S3_SECRET_KEY: z.string(),
+  S3_BUCKET: z.string(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ENDPOINT: z.string(),
+
   // Asaas
   ASAAS_API_KEY: z.string(),
   ASAAS_SANDBOX: z.coerce.boolean().default(false),

@@ -2,6 +2,7 @@ import { db } from '@/db';
 import { comments, commentLikes, contents, creators, users } from '@/db/schema';
 import { eq, desc, and, sql, isNull, inArray } from 'drizzle-orm';
 import { notifyNewComment } from '@/modules/notifications/service';
+import { broadcastComment } from '@/lib/websocket';
 import type { CreateCommentInput, UpdateCommentInput } from './schemas';
 
 export async function createComment(contentId: string, userId: string, input: CreateCommentInput) {
@@ -27,10 +28,19 @@ export async function createComment(contentId: string, userId: string, input: Cr
     })
     .returning();
 
-  // Notificar o dono do conteúdo
-  const creator = await db.query.creators.findFirst({ where: eq(creators.id, content.creatorId) });
+  // Get user info and notify/broadcast
+  const [creator, user] = await Promise.all([
+    db.query.creators.findFirst({ where: eq(creators.id, content.creatorId) }),
+    db.query.users.findFirst({ where: eq(users.id, userId) }),
+  ]);
+
   if (creator) {
     await notifyNewComment(creator.userId, userId, contentId);
+  }
+
+  // Broadcast to all viewers for real-time effect
+  if (user) {
+    broadcastComment(contentId, comment.id, userId, user.name || user.username || 'Anônimo', input.text);
   }
 
   return comment;

@@ -3,8 +3,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ShoppingBag, Bookmark, Lock, Camera, LogOut, Heart } from 'lucide-react';
-import { Card, Avatar, Button, Input } from '@/components/ui';
+import { CheckCircle2, ShoppingBag, Bookmark, Lock, Camera, LogOut, Heart, UserMinus, Users } from 'lucide-react';
+import { Card, Avatar, Button, Input, ResponsiveModal } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -21,7 +21,8 @@ type ProfileFormData = z.infer<typeof profileSchema>;
 export function UserProfileView() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'subscriptions'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'following' | 'subscriptions' | 'history'>('profile');
+  const [unfollowTarget, setUnfollowTarget] = useState<{ id: string; name: string } | null>(null);
   const { user, checkAuth, logout } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,6 +56,22 @@ export function UserProfileView() {
   const { data: purchasedData } = useQuery({
     queryKey: ['purchasedContent'],
     queryFn: () => api.getPurchasedContent(),
+  });
+
+  const { data: followingData, isLoading: isLoadingFollowing } = useQuery({
+    queryKey: ['favoriteCreators'],
+    queryFn: () => api.getFavoriteCreators(),
+  });
+
+  const unfollowCreator = useMutation({
+    mutationFn: (creatorId: string) => api.toggleFavorite(creatorId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['favoriteCreators'] });
+      queryClient.invalidateQueries({ queryKey: ['stories'] });
+      queryClient.invalidateQueries({ queryKey: ['feed'] });
+      toast.success('Deixou de seguir');
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const uploadAvatar = useMutation({
@@ -104,6 +121,8 @@ export function UserProfileView() {
   const activeSubscriptions = subscriptions.filter((s: any) => s.status === 'active').length;
   const purchasedCount = purchasedData?.data?.length || 0;
   const savedCount = savedData?.data?.length || 0;
+  const followingCreators = followingData?.creators || [];
+  const followingCount = followingCreators.length;
 
   const handleLogout = async () => {
     await logout();
@@ -167,6 +186,21 @@ export function UserProfileView() {
           Meus Dados
         </button>
         <button
+          onClick={() => setActiveTab('following')}
+          className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === 'following'
+              ? 'border-brand-500 text-brand-500'
+              : 'border-transparent text-gray-400 hover:text-white'
+          }`}
+        >
+          Seguindo
+          {followingCount > 0 && (
+            <span className="ml-2 px-1.5 py-0.5 text-xs bg-brand-500/20 text-brand-500 rounded-full">
+              {followingCount}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setActiveTab('subscriptions')}
           className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'subscriptions'
@@ -189,7 +223,7 @@ export function UserProfileView() {
               : 'border-transparent text-gray-400 hover:text-white'
           }`}
         >
-          Histórico Financeiro
+          Histórico
         </button>
       </div>
 
@@ -212,11 +246,22 @@ export function UserProfileView() {
                     disabled
                     className="opacity-50"
                   />
-                  <Input
-                    label="Username"
-                    error={errors.username?.message}
-                    {...register('username')}
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                      Username
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">@</span>
+                      <input
+                        {...register('username')}
+                        className="w-full bg-dark-700 border border-dark-600 rounded-lg pl-8 pr-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                        placeholder="seu_username"
+                      />
+                    </div>
+                    {errors.username?.message && (
+                      <p className="text-red-500 text-sm mt-1">{errors.username.message}</p>
+                    )}
+                  </div>
                 </div>
                 <div className="flex justify-end pt-4 border-t border-dark-700">
                   <Button type="submit" isLoading={updateProfile.isPending}>
@@ -225,6 +270,60 @@ export function UserProfileView() {
                 </div>
               </form>
             </Card>
+          )}
+
+          {activeTab === 'following' && (
+            <div className="space-y-4 animate-slide-up">
+              {isLoadingFollowing ? (
+                <div className="space-y-4">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="h-20 bg-dark-800 rounded-xl animate-pulse" />
+                  ))}
+                </div>
+              ) : followingCreators.length > 0 ? (
+                followingCreators.map((creator: any) => (
+                  <Card key={creator.id} className="flex items-center justify-between gap-4">
+                    <Link to={`/creator/${creator.username}`} className="flex items-center gap-4 flex-1 min-w-0">
+                      <Avatar
+                        src={creator.avatarUrl}
+                        name={creator.displayName}
+                        size="lg"
+                        className="flex-shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1">
+                          <h3 className="font-bold text-white truncate">
+                            {creator.displayName || 'Criador'}
+                          </h3>
+                          {creator.isVerified && (
+                            <CheckCircle2 size={14} className="text-blue-500 fill-blue-500/20 flex-shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-400 truncate">@{creator.username}</p>
+                      </div>
+                    </Link>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setUnfollowTarget({ id: creator.id, name: creator.displayName })}
+                      disabled={unfollowCreator.isPending}
+                      className="flex-shrink-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                    >
+                      <UserMinus size={16} />
+                      <span className="hidden sm:inline ml-1">Deixar de seguir</span>
+                    </Button>
+                  </Card>
+                ))
+              ) : (
+                <Card className="text-center py-12">
+                  <Users size={48} className="mx-auto mb-4 text-dark-500" />
+                  <p className="text-gray-400 mb-4">Você ainda não segue nenhum criador.</p>
+                  <Link to="/explore">
+                    <Button>Explorar Criadores</Button>
+                  </Link>
+                </Card>
+              )}
+            </div>
           )}
 
           {activeTab === 'subscriptions' && (
@@ -374,6 +473,18 @@ export function UserProfileView() {
           <Card className="bg-gradient-to-br from-dark-800 to-dark-900">
             <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Estatísticas</h4>
             <div className="space-y-4">
+              <button
+                onClick={() => setActiveTab('following')}
+                className="w-full flex items-center justify-between p-3 bg-dark-950/50 rounded-xl border border-dark-800 hover:border-brand-500/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-pink-500/10 text-pink-500 rounded-lg">
+                    <Users size={16} />
+                  </div>
+                  <span className="text-sm text-gray-300">Seguindo</span>
+                </div>
+                <span className="text-white font-bold">{followingCount}</span>
+              </button>
               <div className="flex items-center justify-between p-3 bg-dark-950/50 rounded-xl border border-dark-800">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-brand-500/10 text-brand-500 rounded-lg">
@@ -406,6 +517,38 @@ export function UserProfileView() {
 
         </div>
       </div>
+
+      {/* Unfollow Confirmation Modal */}
+      <ResponsiveModal
+        open={!!unfollowTarget}
+        onClose={() => setUnfollowTarget(null)}
+        title="Deixar de seguir"
+        size="sm"
+        footer={
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={() => setUnfollowTarget(null)} className="flex-1">
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (unfollowTarget) {
+                  unfollowCreator.mutate(unfollowTarget.id);
+                  setUnfollowTarget(null);
+                }
+              }}
+              isLoading={unfollowCreator.isPending}
+              className="flex-1 bg-red-500 hover:bg-red-600"
+            >
+              Deixar de seguir
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-gray-300 text-center">
+          Tem certeza que deseja deixar de seguir <span className="font-semibold text-white">{unfollowTarget?.name}</span>?
+        </p>
+      </ResponsiveModal>
     </div>
   );
 }

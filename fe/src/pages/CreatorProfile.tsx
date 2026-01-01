@@ -15,14 +15,17 @@ import {
   UserPlus,
   UserCheck,
   LogIn,
+  Package,
 } from 'lucide-react';
 import { Card, Avatar, Button } from '@/components/ui';
+import { PackCard } from '@/components/cards';
 import { MediaViewer, type MediaPost } from '@/components/MediaViewer';
-import { MediaPreview } from '@/components/MediaPreview';
+import { PaymentModal } from '@/components/PaymentModal';
 import { api } from '@/lib/api';
 import { formatCurrency, formatNumber, resolveMediaUrl } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import type { PaymentResponse } from '@/types';
 
 // Helper to convert content to MediaPost format
 function toMediaPost(post: any, creator: any): MediaPost {
@@ -33,6 +36,7 @@ function toMediaPost(post: any, creator: any): MediaPost {
       type: m.type,
       thumbnailUrl: m.thumbnailUrl || undefined,
       ppvPrice: m.ppvPrice,
+      hasAccess: m.hasAccess,
     })),
     hasAccess: post.hasAccess ?? true,
     visibility: post.visibility,
@@ -47,6 +51,7 @@ function toMediaPost(post: any, creator: any): MediaPost {
     text: post.text || undefined,
     likeCount: post.likeCount || 0,
     commentCount: post.commentCount || 0,
+    viewCount: post.viewCount || 0,
     isLiked: post.isLiked,
   };
 }
@@ -57,9 +62,15 @@ export function CreatorProfile() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
-  const [activeTab, setActiveTab] = useState<'posts' | 'media'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'media' | 'packs'>('posts');
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [selectedPost, setSelectedPost] = useState<MediaPost | null>(null);
+
+  // Payment states for subscription
+  const [showCpfInput, setShowCpfInput] = useState(false);
+  const [subscriptionCpf, setSubscriptionCpf] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentData, setPaymentData] = useState<PaymentResponse | null>(null);
 
   // Check if user navigated from within our app (has internal history)
   const [canGoBack, setCanGoBack] = useState(false);
@@ -89,13 +100,8 @@ export function CreatorProfile() {
     }
     if (!creator) return;
 
-    // Check if user can send messages
+    // Navigate to messages - permission check is done in MessagesView
     try {
-      const result = await api.canSendMessage(creator.id);
-      if (!result.allowed) {
-        toast.error(result.reason || 'Você não pode enviar mensagens para este criador');
-        return;
-      }
       navigate('/messages', { state: { creatorId: creator.id } });
     } catch {
       toast.error('Erro ao verificar permissão');
@@ -109,7 +115,7 @@ export function CreatorProfile() {
   });
 
   const { data: content } = useQuery({
-    queryKey: ['creatorContent', creator?.id],
+    queryKey: ['creatorContent', creator?.id, isAuthenticated],
     queryFn: () => api.getCreatorContent(creator!.id),
     enabled: !!creator?.id,
   });
@@ -126,12 +132,22 @@ export function CreatorProfile() {
     enabled: !!creator?.id && isAuthenticated,
   });
 
+  const { data: packsData } = useQuery({
+    queryKey: ['creatorPacks', creator?.id],
+    queryFn: () => api.getCreatorPacks(creator!.id),
+    enabled: !!creator?.id,
+  });
+
   const toggleFollow = useMutation({
     mutationFn: () => api.toggleFavorite(creator!.id),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['followCheck', creator?.id] });
       queryClient.invalidateQueries({ queryKey: ['favoriteCreators'] });
       queryClient.invalidateQueries({ queryKey: ['stories'] });
+      // Also invalidate feed and suggestions
+      queryClient.invalidateQueries({ queryKey: ['feed'] });
+      queryClient.invalidateQueries({ queryKey: ['featuredCreators'] });
+      queryClient.invalidateQueries({ queryKey: ['recentCreators'] });
       toast.success(data.favorited ? 'Seguindo!' : 'Deixou de seguir');
     },
     onError: () => toast.error('Erro ao seguir'),
@@ -155,46 +171,75 @@ export function CreatorProfile() {
     return content.data;
   }, [content?.data, activeTab]);
 
-  // Compute media counts
+  // Compute media counts using mediaCount from API (works even for locked content)
   const mediaCounts = useMemo(() => {
     if (!content?.data) return { photos: 0, videos: 0 };
     let photos = 0;
     let videos = 0;
-    content.data.forEach((post) => {
-      post.media?.forEach((m: { type: string }) => {
-        if (m.type === 'image') photos++;
-        else if (m.type === 'video') videos++;
-      });
+    content.data.forEach((post: any) => {
+      // Use mediaCount from API if available, fallback to counting media array
+      if (post.mediaCount) {
+        photos += post.mediaCount.photos || 0;
+        videos += post.mediaCount.videos || 0;
+      } else {
+        post.media?.forEach((m: { type: string }) => {
+          if (m.type === 'image') photos++;
+          else if (m.type === 'video') videos++;
+        });
+      }
     });
     return { photos, videos };
   }, [content?.data]);
 
   const subscribe = useMutation({
-    mutationFn: () => api.paySubscription(creator!.id),
+    mutationFn: (cpfCnpj: string) => api.paySubscription(creator!.id, '1', cpfCnpj),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['subscriptionCheck', creator?.id] });
-      // Aqui podemos mostrar o QR Code do PIX
-      toast.success('QR Code PIX gerado! Escaneie para pagar.');
-      console.log('PIX QR Code:', data.qrCode);
+      setPaymentData(data);
+      setShowCpfInput(false);
+      setShowPaymentModal(true);
     },
     onError: (error: Error) => {
       toast.error(error.message);
     },
   });
 
-  const handleSubscribe = async () => {
+  const handleSubscribeClick = () => {
     if (!creator) return;
     if (!isAuthenticated) {
       toast.info('Faça login para assinar');
       navigate('/');
       return;
     }
+    setShowCpfInput(true);
+  };
+
+  const handleSubscribeConfirm = async () => {
+    if (!subscriptionCpf || subscriptionCpf.replace(/\D/g, '').length < 11) {
+      toast.error('CPF é obrigatório para pagamentos PIX');
+      return;
+    }
     setIsSubscribing(true);
     try {
-      await subscribe.mutateAsync();
+      await subscribe.mutateAsync(subscriptionCpf.replace(/\D/g, ''));
     } finally {
       setIsSubscribing(false);
     }
+  };
+
+  const handlePaymentSuccess = async () => {
+    setShowPaymentModal(false);
+    setPaymentData(null);
+    setSubscriptionCpf('');
+    toast.success('Assinatura ativada com sucesso!');
+
+    // Force immediate refetch to update UI
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: ['subscriptionCheck', creator?.id] }),
+      queryClient.refetchQueries({ queryKey: ['creatorContent', creator?.id] }),
+    ]);
+
+    // Also invalidate feed to show unlocked content
+    queryClient.invalidateQueries({ queryKey: ['feed'] });
   };
 
   if (isLoading) {
@@ -305,7 +350,7 @@ export function CreatorProfile() {
                     <Share2 size={20} />
                   </button>
                   {!isAuthenticated ? (
-                    <Button onClick={handleSubscribe}>
+                    <Button onClick={handleSubscribeClick}>
                       <LogIn size={18} /> Entrar para Assinar
                     </Button>
                   ) : isSubscribed ? (
@@ -313,7 +358,7 @@ export function CreatorProfile() {
                       <Check size={18} /> Assinando
                     </Button>
                   ) : (
-                    <Button onClick={handleSubscribe} isLoading={isSubscribing}>
+                    <Button onClick={handleSubscribeClick} isLoading={isSubscribing}>
                       Assinar por {formatCurrency(creator.subscriptionPrice)}
                     </Button>
                   )}
@@ -396,43 +441,103 @@ export function CreatorProfile() {
             >
               <ImageIcon size={18} /> Mídia
             </button>
+            {(packsData?.data?.length ?? 0) > 0 && (
+              <button
+                onClick={() => setActiveTab('packs')}
+                className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                  activeTab === 'packs' ? 'border-brand-500 text-brand-500' : 'border-transparent text-gray-400 hover:text-white'
+                }`}
+              >
+                <Package size={18} /> Pacotes
+              </button>
+            )}
           </div>
         </div>
 
         {/* Content Grid */}
+        {activeTab !== 'packs' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredContent.map((post) => {
+          {filteredContent.map((post: any) => {
             const hasVideo = post.media.some((m: { type: string }) => m.type === 'video');
             const firstMedia = post.media[0];
+            const isContentLocked = !post.hasAccess && post.visibility !== 'public';
+            const isMediaPPVLocked = firstMedia?.ppvPrice && firstMedia.ppvPrice > 0 && firstMedia.hasAccess !== true;
+            const isLocked = isContentLocked || isMediaPPVLocked;
+            // Use mediaCount for total count when media is hidden
+            const totalMediaCount = post.mediaCount?.total || post.media.length;
+            const hasVideoContent = post.mediaCount?.videos > 0 || hasVideo;
+
             return (
               <div
                 key={post.id}
-                onClick={() => post.hasAccess && post.media.length > 0 && creator && setSelectedPost(toMediaPost(post, creator))}
+                onClick={() => creator && setSelectedPost(toMediaPost(post, creator))}
                 className="bg-dark-800 border border-dark-700 rounded-2xl overflow-hidden group hover:border-dark-600 transition-colors cursor-pointer"
               >
                 <div className="relative aspect-square">
-                  {firstMedia ? (
-                    <MediaPreview
-                      url={firstMedia.url}
-                      thumbnailUrl={firstMedia.thumbnailUrl}
-                      type={firstMedia.type as 'image' | 'video'}
-                      className="w-full h-full opacity-80 group-hover:opacity-100 transition-opacity"
-                      showPlayIcon={hasVideo && post.hasAccess}
-                      aspectRatio="square"
+                  {/* Background - show thumbnail, image, or video first frame */}
+                  {firstMedia?.thumbnailUrl ? (
+                    <img
+                      src={resolveMediaUrl(firstMedia.thumbnailUrl) || ''}
+                      alt=""
+                      className={`w-full h-full object-cover transition-opacity ${
+                        isLocked ? 'opacity-40 blur-sm' : 'opacity-80 group-hover:opacity-100'
+                      }`}
+                    />
+                  ) : firstMedia?.type === 'image' && firstMedia?.url ? (
+                    <img
+                      src={resolveMediaUrl(firstMedia.url) || ''}
+                      alt=""
+                      className={`w-full h-full object-cover transition-opacity ${
+                        isLocked ? 'opacity-40 blur-sm' : 'opacity-80 group-hover:opacity-100'
+                      }`}
+                    />
+                  ) : firstMedia?.type === 'video' && firstMedia?.url ? (
+                    <video
+                      src={resolveMediaUrl(firstMedia.url) || ''}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className={`w-full h-full object-cover transition-opacity ${
+                        isLocked ? 'opacity-40 blur-sm' : 'opacity-80 group-hover:opacity-100'
+                      }`}
+                      onLoadedMetadata={(e) => {
+                        // Seek to first frame to show preview
+                        (e.target as HTMLVideoElement).currentTime = 0.1;
+                      }}
                     />
                   ) : (
-                    <div className="w-full h-full bg-dark-700 flex items-center justify-center">
-                      <ImageIcon size={32} className="text-dark-500" />
+                    <div className={`w-full h-full flex items-center justify-center ${
+                      isLocked ? 'bg-dark-800' : 'bg-gradient-to-br from-dark-700 to-dark-800'
+                    }`}>
+                      {hasVideoContent ? (
+                        <Video size={32} className="text-dark-500" />
+                      ) : (
+                        <ImageIcon size={32} className="text-dark-500" />
+                      )}
                     </div>
                   )}
-                  {!post.hasAccess && post.visibility !== 'public' && (
-                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
-                      <Lock size={32} className="text-white/80" />
+                  {/* Unlocked content - show play icon for videos */}
+                  {!isLocked && hasVideo && firstMedia?.url && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="p-3 bg-black/50 rounded-full backdrop-blur-sm">
+                        <Video size={24} className="text-white" />
+                      </div>
                     </div>
                   )}
-                  {post.media.length > 1 && (
+                  {/* Lock overlay */}
+                  {isLocked && (
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col items-center justify-center">
+                      <div className="p-3 bg-white/10 rounded-full backdrop-blur-md mb-2">
+                        <Lock size={24} className="text-white" />
+                      </div>
+                      <span className="text-white text-xs font-medium">
+                        {isContentLocked ? 'Exclusivo' : formatCurrency(firstMedia?.ppvPrice || 0)}
+                      </span>
+                    </div>
+                  )}
+                  {totalMediaCount > 1 && (
                     <div className="absolute top-2 right-2 bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-sm">
-                      {post.media.length}
+                      {totalMediaCount}
                     </div>
                   )}
                 </div>
@@ -455,12 +560,116 @@ export function CreatorProfile() {
             </>
           )}
         </div>
+        )}
+
+        {/* Packs Grid */}
+        {activeTab === 'packs' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {packsData?.data?.map((pack) => (
+              <PackCard
+                key={pack.id}
+                pack={pack}
+                showSales
+              />
+            ))}
+            {(!packsData?.data || packsData.data.length === 0) && (
+              <div className="col-span-full text-center py-12 text-gray-500">
+                <Package size={48} className="mx-auto mb-4 opacity-50" />
+                <p>Nenhum pacote disponível</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Media Viewer Modal */}
       {selectedPost && (
         <MediaViewer post={selectedPost} onClose={() => setSelectedPost(null)} />
       )}
+
+      {/* CPF Input Modal for Subscription */}
+      {showCpfInput && creator && (
+        <div
+          className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setShowCpfInput(false)}
+        >
+          <div
+            className="bg-dark-800 rounded-2xl w-full max-w-sm p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-bold text-white">Assinar Criador</h3>
+              <button
+                onClick={() => setShowCpfInput(false)}
+                className="p-1 text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 p-3 bg-dark-700 rounded-xl">
+              <Avatar
+                src={creator.avatarUrl}
+                name={creator.displayName}
+                size="md"
+              />
+              <div>
+                <p className="font-semibold text-white">{creator.displayName}</p>
+                <p className="text-sm text-gray-400">@{creator.username}</p>
+              </div>
+            </div>
+
+            <div className="text-center">
+              <div className="text-3xl font-bold text-white mb-2">
+                {formatCurrency(creator.subscriptionPrice)}
+                <span className="text-sm font-normal text-gray-400">/mês</span>
+              </div>
+              <p className="text-sm text-gray-400">
+                Acesso a todo conteúdo exclusivo
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-2 block">
+                Seu CPF <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={subscriptionCpf}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/\D/g, '').slice(0, 11);
+                  const formatted = v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+                  setSubscriptionCpf(formatted);
+                }}
+                placeholder="000.000.000-00"
+                className="w-full bg-dark-700 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Necessário para pagamentos PIX</p>
+            </div>
+
+            <Button
+              onClick={handleSubscribeConfirm}
+              isLoading={isSubscribing}
+              className="w-full bg-gradient-to-r from-brand-500 to-purple-500 hover:from-brand-600 hover:to-purple-600"
+            >
+              Assinar Agora
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      <PaymentModal
+        open={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setPaymentData(null);
+        }}
+        onSuccess={handlePaymentSuccess}
+        paymentData={paymentData}
+        title="Assinar Criador"
+        description={creator ? `Assinatura mensal de ${creator.displayName}` : undefined}
+      />
     </div>
   );
 }

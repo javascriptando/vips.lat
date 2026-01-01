@@ -39,6 +39,10 @@ const pixKeyPlaceholders: Record<PixKeyType, string> = {
 
 const profileSchema = z.object({
   displayName: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+  username: z.string()
+    .min(3, 'Username deve ter pelo menos 3 caracteres')
+    .max(30, 'Username deve ter no máximo 30 caracteres')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Apenas letras, números e _'),
   bio: z.string().optional(),
   subscriptionPrice: z.coerce.number().min(999, 'Preço mínimo é R$ 9,99').max(99999, 'Preço máximo é R$ 999,99'),
   pixKeyType: z.enum(['CPF', 'CNPJ', 'EMAIL', 'PHONE', 'EVP']).optional(),
@@ -76,6 +80,7 @@ export function Settings() {
     resolver: zodResolver(profileSchema),
     defaultValues: {
       displayName: creator?.displayName || '',
+      username: user?.username || '',
       bio: creator?.bio || '',
       subscriptionPrice: creator?.subscriptionPrice || 2990,
       pixKeyType: undefined,
@@ -109,6 +114,9 @@ export function Settings() {
 
   const updateProfile = useMutation({
     mutationFn: async (data: ProfileFormData) => {
+      // Atualizar username do usuário
+      await api.updateProfile({ username: data.username });
+      // Atualizar perfil do criador
       await api.updateCreatorProfile({
         displayName: data.displayName,
         bio: data.bio,
@@ -120,7 +128,9 @@ export function Settings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['creatorProfile'] });
+      queryClient.invalidateQueries({ queryKey: ['currentUser'] });
       loadCreatorProfile();
+      checkAuth();
       toast.success('Perfil atualizado com sucesso!');
     },
     onError: (error: Error) => {
@@ -239,6 +249,24 @@ export function Settings() {
                 error={errors.displayName?.message}
                 {...register('displayName')}
               />
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Username
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">@</span>
+                  <input
+                    {...register('username')}
+                    className="w-full bg-dark-900 border border-dark-700 rounded-xl pl-9 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 transition-all"
+                    placeholder="seu_username"
+                  />
+                </div>
+                {errors.username?.message && (
+                  <p className="text-red-500 text-xs mt-1">{errors.username.message}</p>
+                )}
+              </div>
+            </div>
+            <div className="mt-4">
               <Input label="Email" type="email" value={user?.email || ''} disabled className="opacity-50" />
             </div>
             <div className="mt-4">

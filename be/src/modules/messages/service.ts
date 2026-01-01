@@ -1,7 +1,7 @@
 import { db } from '@/db';
-import { conversations, messages, users, creators, subscriptions } from '@/db/schema';
+import { conversations, messages, users, creators, subscriptions, mediaPacks, mediaPackPurchases } from '@/db/schema';
 import { eq, and, desc, or, sql } from 'drizzle-orm';
-import type { SendMessageInput, ListMessagesInput } from './schemas';
+import type { SendMessageInput, ListMessagesInput, CreatorSendMessageInput } from './schemas';
 import { broadcastNewMessage } from '@/lib/websocket';
 
 // Verificar se usuário tem assinatura ativa com o criador
@@ -157,29 +157,50 @@ export async function sendMessage(senderId: string, input: SendMessageInput) {
 }
 
 // Criador envia mensagem para um usuário específico
-export async function sendMessageAsCreator(creatorUserId: string, conversationId: string, text?: string, mediaUrl?: string, mediaType?: string) {
-  // Verificar que a conversa pertence ao criador
-  const conversation = await db.query.conversations.findFirst({
-    where: eq(conversations.id, conversationId),
-    with: {
-      creator: true,
-    },
-  });
-
-  if (!conversation) {
-    throw new Error('Conversa não encontrada');
-  }
+export async function sendMessageAsCreator(
+  creatorUserId: string,
+  conversationId: string,
+  input: CreatorSendMessageInput
+) {
+  const { text, mediaUrl, mediaType, thumbnailUrl, ppvPrice, packId } = input;
 
   // Buscar criador pelo userId do remetente
   const creator = await db.query.creators.findFirst({
     where: eq(creators.userId, creatorUserId),
   });
 
-  if (!creator || creator.id !== conversation.creatorId) {
-    throw new Error('Você não tem permissão para enviar nesta conversa');
+  if (!creator) {
+    throw new Error('Você não é um criador');
   }
 
-  const preview = text ? text.substring(0, 100) : '[Mídia]';
+  // Verificar que a conversa pertence ao criador
+  const conversation = await db.query.conversations.findFirst({
+    where: and(
+      eq(conversations.id, conversationId),
+      eq(conversations.creatorId, creator.id)
+    ),
+  });
+
+  if (!conversation) {
+    throw new Error('Conversa não encontrada ou você não tem permissão');
+  }
+
+  // If attaching a pack, verify it belongs to this creator
+  if (packId) {
+    const pack = await db.query.mediaPacks.findFirst({
+      where: and(
+        eq(mediaPacks.id, packId),
+        eq(mediaPacks.creatorId, creator.id)
+      ),
+    });
+    if (!pack) {
+      throw new Error('Pacote não encontrado');
+    }
+  }
+
+  let preview = text ? text.substring(0, 100) : '';
+  if (!preview && packId) preview = '[Pacote]';
+  else if (!preview && mediaUrl) preview = ppvPrice ? '[Mídia Paga]' : '[Mídia]';
 
   const [message] = await db
     .insert(messages)
@@ -189,6 +210,9 @@ export async function sendMessageAsCreator(creatorUserId: string, conversationId
       text,
       mediaUrl,
       mediaType,
+      thumbnailUrl,
+      ppvPrice,
+      packId,
     })
     .returning();
 
@@ -219,6 +243,8 @@ export async function sendMessageAsCreator(creatorUserId: string, conversationId
       text: message.text,
       mediaUrl: message.mediaUrl,
       mediaType: message.mediaType,
+      ppvPrice: message.ppvPrice,
+      packId: message.packId,
       createdAt: message.createdAt.toISOString(),
     });
   }
@@ -311,6 +337,10 @@ export async function listMessages(userId: string, input: ListMessagesInput) {
       text: messages.text,
       mediaUrl: messages.mediaUrl,
       mediaType: messages.mediaType,
+      thumbnailUrl: messages.thumbnailUrl,
+      ppvPrice: messages.ppvPrice,
+      isPurchased: messages.isPurchased,
+      packId: messages.packId,
       isRead: messages.isRead,
       createdAt: messages.createdAt,
       senderName: users.name,
@@ -327,7 +357,39 @@ export async function listMessages(userId: string, input: ListMessagesInput) {
     .limit(pageSize)
     .offset(offset);
 
-  return msgs.reverse(); // Reverter para ordem cronológica
+  // For each message with a pack, fetch pack details and check if purchased
+  const msgsWithPacks = await Promise.all(
+    msgs.map(async (msg) => {
+      if (msg.packId) {
+        const pack = await db.query.mediaPacks.findFirst({
+          where: eq(mediaPacks.id, msg.packId),
+        });
+
+        // Check if user has purchased this pack
+        const purchase = await db.query.mediaPackPurchases.findFirst({
+          where: and(
+            eq(mediaPackPurchases.userId, userId),
+            eq(mediaPackPurchases.packId, msg.packId)
+          ),
+        });
+
+        return {
+          ...msg,
+          packPurchased: !!purchase,
+          pack: pack ? {
+            id: pack.id,
+            name: pack.name,
+            coverUrl: pack.coverUrl,
+            price: pack.price,
+            mediaCount: (pack.media as any[])?.length || 0,
+          } : null,
+        };
+      }
+      return { ...msg, pack: null, packPurchased: false };
+    })
+  );
+
+  return msgsWithPacks.reverse(); // Reverter para ordem cronológica
 }
 
 // Marcar mensagens como lidas
@@ -429,4 +491,81 @@ export async function toggleBlockConversation(creatorUserId: string, conversatio
     .returning();
 
   return updated;
+}
+
+// Get exclusive content (purchased PPV messages - collector items)
+export async function getExclusiveContent(userId: string, page = 1, pageSize = 20) {
+  const offset = (page - 1) * pageSize;
+
+  // Find all messages where the user is the recipient and has purchased PPV content
+  // These are messages sent TO the user (in conversations where userId = user)
+  // AND the message has media + ppvPrice + isPurchased = true
+  const exclusiveMessages = await db
+    .select({
+      id: messages.id,
+      mediaUrl: messages.mediaUrl,
+      mediaType: messages.mediaType,
+      thumbnailUrl: messages.thumbnailUrl,
+      ppvPrice: messages.ppvPrice,
+      createdAt: messages.createdAt,
+      conversationId: messages.conversationId,
+      creatorId: conversations.creatorId,
+      creatorDisplayName: creators.displayName,
+      creatorUsername: users.username,
+      creatorAvatarUrl: users.avatarUrl,
+      creatorVerified: creators.verified,
+    })
+    .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .innerJoin(creators, eq(creators.id, conversations.creatorId))
+    .innerJoin(users, eq(users.id, creators.userId))
+    .where(and(
+      eq(conversations.userId, userId),
+      eq(messages.isPurchased, true),
+      eq(messages.isDeleted, false),
+      sql`${messages.mediaUrl} IS NOT NULL`,
+      sql`${messages.ppvPrice} IS NOT NULL`
+    ))
+    .orderBy(desc(messages.createdAt))
+    .limit(pageSize)
+    .offset(offset);
+
+  // Get total count
+  const countResult = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .where(and(
+      eq(conversations.userId, userId),
+      eq(messages.isPurchased, true),
+      eq(messages.isDeleted, false),
+      sql`${messages.mediaUrl} IS NOT NULL`,
+      sql`${messages.ppvPrice} IS NOT NULL`
+    ));
+
+  const total = countResult[0]?.count || 0;
+
+  return {
+    data: exclusiveMessages.map((msg) => ({
+      id: msg.id,
+      mediaUrl: msg.mediaUrl!,
+      mediaType: msg.mediaType as 'image' | 'video',
+      thumbnailUrl: msg.thumbnailUrl,
+      purchasedAt: msg.createdAt.toISOString(),
+      pricePaid: msg.ppvPrice!,
+      creator: {
+        id: msg.creatorId,
+        displayName: msg.creatorDisplayName,
+        username: msg.creatorUsername,
+        avatarUrl: msg.creatorAvatarUrl,
+        isVerified: msg.creatorVerified,
+      },
+    })),
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    },
+  };
 }

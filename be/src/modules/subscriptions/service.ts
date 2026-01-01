@@ -2,6 +2,7 @@ import { db } from '@/db';
 import { subscriptions, creators, users, SUBSCRIPTION_MULTIPLIERS } from '@/db/schema';
 import type { SubscriptionDuration } from '@/db/schema/subscriptions';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { notifyNewSubscriber, sendInvalidation } from '@/lib/websocket';
 import type { ListSubscriptionsInput } from './schemas';
 
 // Calcula a data de expiração baseada na duração
@@ -81,6 +82,15 @@ export async function createSubscription(
     .update(creators)
     .set({ subscriberCount: sql`${creators.subscriberCount} + 1`, updatedAt: new Date() })
     .where(eq(creators.id, creatorId));
+
+  // Notificar o criador em tempo real
+  const subscriber = await db.query.users.findFirst({ where: eq(users.id, subscriberId) });
+  if (subscriber) {
+    notifyNewSubscriber(creatorId, subscriberId, subscriber.name || subscriber.username);
+  }
+
+  // Enviar invalidação para o assinante atualizar suas assinaturas
+  sendInvalidation(subscriberId, ['subscriptions', 'subscription-status']);
 
   return subscription;
 }
@@ -172,7 +182,10 @@ export async function listUserSubscriptions(userId: string, input: ListSubscript
 
   const conditions = [eq(subscriptions.subscriberId, userId)];
   if (status !== 'all') {
-    conditions.push(eq(subscriptions.status, status as 'active' | 'cancelled' | 'expired'));
+    conditions.push(eq(subscriptions.status, status as 'active' | 'cancelled' | 'expired' | 'pending'));
+  } else {
+    // Por padrão, não mostrar subscriptions 'pending' (pagamentos não concluídos)
+    conditions.push(sql`${subscriptions.status} != 'pending'`);
   }
 
   const subs = await db

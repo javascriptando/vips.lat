@@ -10,10 +10,42 @@ import * as analyticsService from '@/modules/analytics/service';
 
 const contentRoutes = new Hono<{ Variables: AppVariables }>();
 
-// POST /api/content - Criar conteúdo
+// POST /api/content - Criar conteúdo (aceita FormData ou JSON com mídia pré-carregada)
 contentRoutes.post('/', requireAuth, requireCreator, uploadRateLimit, async (c) => {
   try {
     const user = c.get('user')!;
+    const contentType = c.req.header('content-type') || '';
+
+    const creator = await creatorService.getCreatorByUserId(user.id);
+    if (!creator) return c.json({ error: 'Perfil não encontrado' }, 404);
+
+    // Check if it's JSON (pre-uploaded media from chunked upload)
+    if (contentType.includes('application/json')) {
+      const body = await c.req.json();
+
+      const input = createContentSchema.parse({
+        type: body.type,
+        visibility: body.visibility,
+        text: body.text,
+        ppvPrice: body.ppvPrice,
+      });
+
+      // Media já foi carregada via chunked upload
+      const media = body.media as Array<{
+        path: string;
+        url: string;
+        size: number;
+        mimeType: string;
+        type: 'image' | 'video';
+        isPPV?: boolean;
+        ppvPrice?: number;
+      }>;
+
+      const content = await contentService.createContentWithMedia(creator.id, input, media);
+      return c.json({ message: 'Conteúdo criado!', content }, 201);
+    }
+
+    // Legacy FormData upload
     const body = await c.req.parseBody();
 
     const input = createContentSchema.parse({
@@ -22,9 +54,6 @@ contentRoutes.post('/', requireAuth, requireCreator, uploadRateLimit, async (c) 
       text: body['text'],
       ppvPrice: body['ppvPrice'] ? Number(body['ppvPrice']) : undefined,
     });
-
-    const creator = await creatorService.getCreatorByUserId(user.id);
-    if (!creator) return c.json({ error: 'Perfil não encontrado' }, 404);
 
     // Coletar arquivos
     const files: File[] = [];

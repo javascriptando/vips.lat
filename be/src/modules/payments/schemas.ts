@@ -15,6 +15,7 @@ export const createSubscriptionPaymentSchema = z.object({
 
 export const createPPVPaymentSchema = z.object({
   contentId: z.string().uuid(),
+  mediaIndex: z.number().int().min(0).optional(), // For per-media PPV purchases
   cpfCnpj: cpfCnpjSchema.optional(),
 });
 
@@ -22,6 +23,7 @@ export const createTipPaymentSchema = z.object({
   creatorId: z.string().uuid(),
   amount: z.number().min(LIMITS.MIN_TIP_AMOUNT, `Gorjeta mínima é R$ ${(LIMITS.MIN_TIP_AMOUNT / 100).toFixed(2)}`),
   message: z.string().max(200).optional(),
+  contentId: z.string().uuid().optional(), // Associate tip with specific content for real-time effects
   cpfCnpj: cpfCnpjSchema.optional(),
 });
 
@@ -29,14 +31,27 @@ export const createProPlanPaymentSchema = z.object({
   cpfCnpj: cpfCnpjSchema.optional(),
 });
 
+export const createPackPaymentSchema = z.object({
+  packId: z.string().uuid(),
+  messageId: z.string().uuid().optional(), // If purchasing via message
+  cpfCnpj: cpfCnpjSchema.optional(),
+});
+
+export const createMessagePPVPaymentSchema = z.object({
+  messageId: z.string().uuid(),
+  cpfCnpj: cpfCnpjSchema.optional(),
+});
+
 export const listPaymentsSchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(50).default(20),
-  type: z.enum(['subscription', 'ppv', 'tip', 'pro_plan', 'all']).default('all'),
+  type: z.enum(['subscription', 'ppv', 'tip', 'pro_plan', 'pack', 'all']).default('all'),
   status: z.enum(['pending', 'confirmed', 'failed', 'refunded', 'expired', 'all']).default('all'),
 });
 
 export type CreateSubscriptionPaymentInput = z.infer<typeof createSubscriptionPaymentSchema>;
 export type CreatePPVPaymentInput = z.infer<typeof createPPVPaymentSchema>;
 export type CreateTipPaymentInput = z.infer<typeof createTipPaymentSchema>;
+export type CreatePackPaymentInput = z.infer<typeof createPackPaymentSchema>;
+export type CreateMessagePPVPaymentInput = z.infer<typeof createMessagePPVPaymentSchema>;
 export type ListPaymentsInput = z.infer<typeof listPaymentsSchema>;

@@ -141,7 +141,7 @@ export function ResponsiveModal({
       onClick={(e) => e.target === e.currentTarget && handleClose()}
     >
       <div
-        className={`bg-dark-800 rounded-2xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col border border-dark-700 shadow-2xl transition-all duration-200 ease-out ${
+        className={`bg-dark-800 rounded-2xl w-full ${sizeClasses[size]} max-h-[70vh] flex flex-col border border-dark-700 shadow-2xl transition-all duration-200 ease-out ${
           isAnimating
             ? 'opacity-100 scale-100 translate-y-0'
             : 'opacity-0 scale-95 translate-y-4'

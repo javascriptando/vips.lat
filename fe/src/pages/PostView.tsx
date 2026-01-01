@@ -13,6 +13,7 @@ function contentToMediaPost(content: Content): MediaPost {
       type: m.type,
       thumbnailUrl: m.thumbnailUrl || undefined,
       ppvPrice: m.ppvPrice,
+      hasAccess: m.hasAccess,
     })),
     hasAccess: content.hasAccess ?? true,
     visibility: content.visibility,

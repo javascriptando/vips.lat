@@ -20,7 +20,25 @@ export type WSMessage =
   | { type: 'typing'; data: { conversationId: string; userId: string } }
   | { type: 'ping' }
   | { type: 'pong' }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  // Content updates
+  | { type: 'content_created'; data: { contentId: string; creatorId: string } }
+  | { type: 'content_updated'; data: { contentId: string } }
+  | { type: 'content_deleted'; data: { contentId: string } }
+  // Story updates
+  | { type: 'story_created'; data: { storyId: string; creatorId: string } }
+  | { type: 'story_deleted'; data: { storyId: string } }
+  // Subscription updates
+  | { type: 'new_subscriber'; data: { subscriberId: string; subscriberName: string } }
+  | { type: 'subscription_cancelled'; data: { subscriberId: string } }
+  // Interactions
+  | { type: 'new_like'; data: { contentId: string; userId: string } }
+  | { type: 'new_comment'; data: { contentId: string; commentId: string; userId: string } }
+  | { type: 'new_tip'; data: { amount: number; fromUserId: string; fromName: string; message?: string } }
+  // Payment updates
+  | { type: 'payment_completed'; data: { paymentId: string; type: string } }
+  // Generic invalidation trigger
+  | { type: 'invalidate'; data: { queryKeys: string[] } };
 
 interface NewMessagePayload {
   id: string;
@@ -32,6 +50,8 @@ interface NewMessagePayload {
   text: string | null;
   mediaUrl: string | null;
   mediaType: string | null;
+  ppvPrice?: number | null;
+  packId?: string | null;
   createdAt: string;
 }
 
@@ -218,4 +238,150 @@ export function getConnectionStats() {
     uniqueUsers: userConnections.size,
     uniqueCreators: creatorConnections.size,
   };
+}
+
+// Broadcast content created to all subscribers of a creator
+export function broadcastContentCreated(creatorId: string, contentId: string) {
+  const wsMessage: WSMessage = {
+    type: 'content_created',
+    data: { contentId, creatorId }
+  };
+  // Broadcast to all connected users (they can filter by their subscriptions)
+  for (const [, conns] of userConnections) {
+    const payload = JSON.stringify(wsMessage);
+    for (const ws of conns) {
+      try {
+        ws.send(payload);
+      } catch { /* ignore */ }
+    }
+  }
+}
+
+// Notify creator of new subscriber
+export function notifyNewSubscriber(creatorId: string, subscriberId: string, subscriberName: string) {
+  const wsMessage: WSMessage = {
+    type: 'new_subscriber',
+    data: { subscriberId, subscriberName }
+  };
+  sendToCreator(creatorId, wsMessage);
+}
+
+// Notify creator of new like
+export function notifyNewLike(creatorId: string, contentId: string, userId: string) {
+  const wsMessage: WSMessage = {
+    type: 'new_like',
+    data: { contentId, userId }
+  };
+  sendToCreator(creatorId, wsMessage);
+}
+
+// Notify creator of new comment
+export function notifyNewComment(creatorId: string, contentId: string, commentId: string, userId: string) {
+  const wsMessage: WSMessage = {
+    type: 'new_comment',
+    data: { contentId, commentId, userId }
+  };
+  sendToCreator(creatorId, wsMessage);
+}
+
+// Notify creator of new tip
+export function notifyNewTip(creatorId: string, amount: number, fromUserId: string, fromName: string, message?: string) {
+  const wsMessage: WSMessage = {
+    type: 'new_tip',
+    data: { amount, fromUserId, fromName, message }
+  };
+  sendToCreator(creatorId, wsMessage);
+}
+
+// Notify user of payment completion
+export function notifyPaymentCompleted(userId: string, paymentId: string, type: string) {
+  const wsMessage: WSMessage = {
+    type: 'payment_completed',
+    data: { paymentId, type }
+  };
+  sendToUser(userId, wsMessage);
+}
+
+// Send invalidation signal to user
+export function sendInvalidation(userId: string, queryKeys: string[]) {
+  const wsMessage: WSMessage = {
+    type: 'invalidate',
+    data: { queryKeys }
+  };
+  sendToUser(userId, wsMessage);
+}
+
+// Broadcast like to all users (for real-time effects)
+export function broadcastLike(contentId: string, userId: string, userName: string) {
+  const wsMessage: WSMessage = {
+    type: 'new_like',
+    data: { contentId, userId, userName }
+  } as WSMessage;
+  // Broadcast to all connected users
+  for (const [, conns] of userConnections) {
+    const payload = JSON.stringify(wsMessage);
+    for (const ws of conns) {
+      try { ws.send(payload); } catch { /* ignore */ }
+    }
+  }
+}
+
+// Broadcast comment to all users (for real-time effects)
+export function broadcastComment(contentId: string, commentId: string, userId: string, userName: string, text: string) {
+  const wsMessage = {
+    type: 'new_comment',
+    data: { contentId, commentId, userId, userName, text }
+  };
+  // Broadcast to all connected users
+  for (const [, conns] of userConnections) {
+    const payload = JSON.stringify(wsMessage);
+    for (const ws of conns) {
+      try { ws.send(payload); } catch { /* ignore */ }
+    }
+  }
+}
+
+// Broadcast tip to all users viewing the content (for real-time effects)
+export function broadcastTip(contentId: string, creatorId: string, amount: number, fromName: string, message?: string) {
+  const wsMessage = {
+    type: 'new_tip',
+    data: { contentId, creatorId, amount, fromUserId: '', fromName, message }
+  };
+  // Broadcast to all connected users
+  for (const [, conns] of userConnections) {
+    const payload = JSON.stringify(wsMessage);
+    for (const ws of conns) {
+      try { ws.send(payload); } catch { /* ignore */ }
+    }
+  }
+}
+
+// Broadcast story created to all users (they can filter by their follows)
+export function broadcastStoryCreated(creatorId: string, storyId: string) {
+  const wsMessage: WSMessage = {
+    type: 'story_created',
+    data: { storyId, creatorId }
+  };
+  // Broadcast to all connected users
+  for (const [, conns] of userConnections) {
+    const payload = JSON.stringify(wsMessage);
+    for (const ws of conns) {
+      try { ws.send(payload); } catch { /* ignore */ }
+    }
+  }
+}
+
+// Broadcast story deleted
+export function broadcastStoryDeleted(storyId: string) {
+  const wsMessage: WSMessage = {
+    type: 'story_deleted',
+    data: { storyId }
+  };
+  // Broadcast to all connected users
+  for (const [, conns] of userConnections) {
+    const payload = JSON.stringify(wsMessage);
+    for (const ws of conns) {
+      try { ws.send(payload); } catch { /* ignore */ }
+    }
+  }
 }
