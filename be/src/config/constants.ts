@@ -1,7 +1,10 @@
 // Taxas e fees
 export const FEES = {
-  // Taxa PIX Asaas (paga pelo cliente)
+  // Taxa PIX Asaas para recebimentos (paga pelo cliente)
   PIX_FEE: 199, // R$ 1,99 em centavos
+
+  // Taxa PIX Asaas para transferências/saques (paga pelo criador)
+  PAYOUT_PIX_FEE: 200, // R$ 2,00 em centavos
 
   // Split da plataforma
   PLATFORM_FEE_SUBSCRIPTION: 0.10, // 10%

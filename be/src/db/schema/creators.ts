@@ -31,6 +31,18 @@ export const creators = pgTable('creators', {
   cpfCnpj: varchar('cpf_cnpj', { length: 18 }),
   verified: boolean('verified').default(false).notNull(),
 
+  // KYC
+  kycStatus: varchar('kyc_status', { length: 20 }).default('none').notNull(), // none, pending, approved, rejected
+  kycVerifiedAt: timestamp('kyc_verified_at', { withTimezone: true }),
+
+  // Payout control
+  payoutsBlocked: boolean('payouts_blocked').default(false).notNull(),
+  payoutBlockReason: text('payout_block_reason'),
+
+  // Chargeback tracking
+  chargebackCount: integer('chargeback_count').default(0).notNull(),
+  chargebackPenaltyBalance: integer('chargeback_penalty_balance').default(0).notNull(),
+
   // Visibility
   isActive: boolean('is_active').default(true).notNull(),
 

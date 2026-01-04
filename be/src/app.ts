@@ -26,6 +26,9 @@ import { storyRoutes } from '@/modules/stories/routes';
 import { uploadRoutes } from '@/modules/upload/routes';
 import packRoutes from '@/modules/packs/routes';
 import { secureMediaRoutes } from '@/modules/secureMedia/routes';
+import { kycRoutes } from '@/modules/kyc/routes';
+import { reportRoutes } from '@/modules/reports/routes';
+import { adminRoutes } from '@/modules/admin/routes';
 
 // Create Hono app
 const app = new Hono<{ Variables: AppVariables }>();
@@ -116,6 +119,9 @@ app.route('/api/stories', storyRoutes);
 app.route('/api/upload', uploadRoutes);
 app.route('/api/packs', packRoutes);
 app.route('/api/secure-media', secureMediaRoutes);
+app.route('/api/kyc', kycRoutes);
+app.route('/api/reports', reportRoutes);
+app.route('/api/admin', adminRoutes);
 
 // Media routes (uploads)
 app.route('/uploads', mediaRoutes);

@@ -20,6 +20,7 @@ export function useAuth() {
     isLoading,
     isAuthenticated,
     isCreator: user?.isCreator ?? false,
+    isAdmin: user?.role === 'admin',
     login,
     register,
     becomeCreator,

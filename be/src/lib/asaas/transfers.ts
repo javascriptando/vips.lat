@@ -39,21 +39,6 @@ export function detectPixKeyType(pixKey: string): PixKeyType {
   // Remove caracteres especiais para validação
   const cleaned = pixKey.replace(/\D/g, '');
 
-  // CPF: 11 dígitos
-  if (cleaned.length === 11 && /^\d{11}$/.test(cleaned)) {
-    return 'CPF';
-  }
-
-  // CNPJ: 14 dígitos
-  if (cleaned.length === 14 && /^\d{14}$/.test(cleaned)) {
-    return 'CNPJ';
-  }
-
-  // Telefone: +55 + DDD + número
-  if (/^\+?55\d{10,11}$/.test(cleaned) || /^\d{10,11}$/.test(cleaned)) {
-    return 'PHONE';
-  }
-
   // Email
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pixKey)) {
     return 'EMAIL';
@@ -62,6 +47,26 @@ export function detectPixKeyType(pixKey: string): PixKeyType {
   // EVP (chave aleatória): UUID format
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pixKey)) {
     return 'EVP';
+  }
+
+  // Telefone com +55 explícito
+  if (pixKey.startsWith('+55') || pixKey.startsWith('+')) {
+    return 'PHONE';
+  }
+
+  // CNPJ: 14 dígitos
+  if (cleaned.length === 14) {
+    return 'CNPJ';
+  }
+
+  // CPF: 11 dígitos (padrão para 11 dígitos numéricos)
+  if (cleaned.length === 11) {
+    return 'CPF';
+  }
+
+  // Telefone fixo: 10 dígitos (DDD + 8 dígitos)
+  if (cleaned.length === 10) {
+    return 'PHONE';
   }
 
   // Default para EVP se não identificado

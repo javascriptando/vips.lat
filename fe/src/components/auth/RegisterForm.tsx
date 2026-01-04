@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -22,6 +23,7 @@ interface RegisterFormProps {
 }
 
 export function RegisterForm({ onBack, onSwitchToLogin }: RegisterFormProps) {
+  const navigate = useNavigate();
   const { register: registerUser, becomeCreator } = useAuth();
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -48,6 +50,11 @@ export function RegisterForm({ onBack, onSwitchToLogin }: RegisterFormProps) {
           displayName: data.name,
           subscriptionPrice: 2990, // R$ 29,90 default - can change in settings
         });
+        // Navigate to dashboard for creators
+        navigate('/dashboard', { replace: true });
+      } else {
+        // Navigate to feed for subscribers
+        navigate('/feed', { replace: true });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao criar conta');
@@ -60,10 +67,8 @@ export function RegisterForm({ onBack, onSwitchToLogin }: RegisterFormProps) {
     <div className="min-h-screen flex items-center justify-center bg-dark-900 p-4 animate-fade-in">
       <div className="w-full max-w-md bg-dark-800 border border-dark-700 rounded-2xl p-8 shadow-2xl">
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg">
-              V
-            </div>
+          <div className="flex items-center justify-center mb-4">
+            <img src="/logo.png" alt="VIPS.lat" className="h-10" />
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Crie sua conta</h2>
           <p className="text-gray-400">Comece a lucrar ou apoiar criadores</p>
@@ -136,6 +141,18 @@ export function RegisterForm({ onBack, onSwitchToLogin }: RegisterFormProps) {
               </button>
             </div>
           </div>
+
+          <p className="text-xs text-gray-500 text-center">
+            Ao criar sua conta, você concorda com nossos{' '}
+            <Link to="/termos" target="_blank" className="text-brand-500 hover:underline">
+              Termos de Uso
+            </Link>{' '}
+            e{' '}
+            <Link to="/privacidade" target="_blank" className="text-brand-500 hover:underline">
+              Política de Privacidade
+            </Link>
+            .
+          </p>
 
           <Button type="submit" className="w-full" isLoading={isLoading}>
             {accountType === 'creator' ? 'Criar Conta de Criador' : 'Cadastrar Gratuitamente'}

@@ -1,5 +1,5 @@
 import { db } from '@/db';
-import { creators, balances, users, subscriptions, favorites } from '@/db/schema';
+import { creators, balances, users, subscriptions, favorites, kycVerifications } from '@/db/schema';
 import { eq, ilike, desc, asc, sql, and, gte, notInArray } from 'drizzle-orm';
 import { uploadFile, deleteFile } from '@/lib/storage';
 import { detectPixKeyType } from '@/lib/asaas';
@@ -123,13 +123,69 @@ export async function updateCover(creatorId: string, file: File) {
 export async function setPixKey(creatorId: string, pixKey: string) {
   const pixKeyType = detectPixKeyType(pixKey);
 
+  // Normalizar chave PIX
+  let normalizedKey = pixKey;
+  if (pixKeyType === 'PHONE') {
+    // Adicionar +55 se for telefone sem prefixo
+    const cleaned = pixKey.replace(/\D/g, '');
+    if (!pixKey.startsWith('+')) {
+      normalizedKey = cleaned.startsWith('55') ? `+${cleaned}` : `+55${cleaned}`;
+    }
+  } else if (pixKeyType === 'CPF' || pixKeyType === 'CNPJ') {
+    // Remover formatação de CPF/CNPJ
+    normalizedKey = pixKey.replace(/\D/g, '');
+  }
+
   const [updatedCreator] = await db
     .update(creators)
-    .set({ asaasPixKey: pixKey, asaasPixKeyType: pixKeyType, updatedAt: new Date() })
+    .set({ asaasPixKey: normalizedKey, asaasPixKeyType: pixKeyType, updatedAt: new Date() })
     .where(eq(creators.id, creatorId))
     .returning();
 
   return updatedCreator;
+}
+
+// Ativa chave PIX automaticamente usando o CPF do KYC aprovado
+export async function activatePixKeyFromKyc(creatorId: string): Promise<{ pixKey: string }> {
+  // Verificar se o criador tem KYC aprovado
+  const creator = await db.query.creators.findFirst({
+    where: eq(creators.id, creatorId),
+  });
+
+  if (!creator) {
+    throw new Error('Criador não encontrado');
+  }
+
+  if (creator.kycStatus !== 'approved') {
+    throw new Error('É necessário ter a verificação KYC aprovada para ativar a chave PIX');
+  }
+
+  // Buscar o KYC aprovado para pegar o CPF
+  const kyc = await db.query.kycVerifications.findFirst({
+    where: and(
+      eq(kycVerifications.creatorId, creatorId),
+      eq(kycVerifications.status, 'approved')
+    ),
+  });
+
+  if (!kyc || !kyc.documentNumber) {
+    throw new Error('CPF não encontrado na verificação KYC');
+  }
+
+  // Usar o CPF do KYC como chave PIX
+  const cpf = kyc.documentNumber.replace(/\D/g, '');
+
+  const [updatedCreator] = await db
+    .update(creators)
+    .set({
+      asaasPixKey: cpf,
+      asaasPixKeyType: 'CPF',
+      updatedAt: new Date(),
+    })
+    .where(eq(creators.id, creatorId))
+    .returning();
+
+  return { pixKey: cpf };
 }
 
 export async function listCreators(input: ListCreatorsInput) {

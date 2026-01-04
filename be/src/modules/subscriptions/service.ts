@@ -86,7 +86,7 @@ export async function createSubscription(
   // Notificar o criador em tempo real
   const subscriber = await db.query.users.findFirst({ where: eq(users.id, subscriberId) });
   if (subscriber) {
-    notifyNewSubscriber(creatorId, subscriberId, subscriber.name || subscriber.username);
+    notifyNewSubscriber(creatorId, subscriberId, subscriber.name || subscriber.username || 'Assinante');
   }
 
   // Enviar invalidação para o assinante atualizar suas assinaturas
@@ -182,10 +182,7 @@ export async function listUserSubscriptions(userId: string, input: ListSubscript
 
   const conditions = [eq(subscriptions.subscriberId, userId)];
   if (status !== 'all') {
-    conditions.push(eq(subscriptions.status, status as 'active' | 'cancelled' | 'expired' | 'pending'));
-  } else {
-    // Por padrão, não mostrar subscriptions 'pending' (pagamentos não concluídos)
-    conditions.push(sql`${subscriptions.status} != 'pending'`);
+    conditions.push(eq(subscriptions.status, status as 'active' | 'cancelled' | 'expired'));
   }
 
   const subs = await db

@@ -127,6 +127,20 @@ creatorRoutes.get('/me/subscribers', requireAuth, requireCreator, async (c) => {
   return c.json(result);
 });
 
+// POST /api/creators/me/activate-pix - Ativar chave PIX usando CPF do KYC aprovado
+creatorRoutes.post('/me/activate-pix', requireAuth, requireCreator, async (c) => {
+  try {
+    const user = c.get('user')!;
+    const creator = await creatorService.getCreatorByUserId(user.id);
+    if (!creator) return c.json({ error: 'Perfil não encontrado' }, 404);
+
+    const result = await creatorService.activatePixKeyFromKyc(creator.id);
+    return c.json({ message: 'Chave PIX ativada com sucesso!', pixKey: result.pixKey });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Erro ao ativar chave PIX' }, 400);
+  }
+});
+
 // GET /api/creators/:username
 creatorRoutes.get('/:username', async (c) => {
   const username = c.req.param('username');

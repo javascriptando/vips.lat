@@ -5,6 +5,7 @@ import { requireAuth, requireCreator } from '@/middlewares/auth';
 import { requestPayoutSchema, listPayoutsSchema } from './schemas';
 import * as payoutService from './service';
 import * as creatorService from '@/modules/creators/service';
+import { LIMITS, FEES } from '@/config/constants';
 
 const payoutRoutes = new Hono<{ Variables: AppVariables }>();
 
@@ -40,7 +41,7 @@ payoutRoutes.get('/', requireAuth, requireCreator, zValidator('query', listPayou
   return c.json(result);
 });
 
-// GET /api/payouts/balance - Saldo disponível
+// GET /api/payouts/balance - Saldo disponível e limites
 payoutRoutes.get('/balance', requireAuth, requireCreator, async (c) => {
   const user = c.get('user')!;
 
@@ -48,8 +49,20 @@ payoutRoutes.get('/balance', requireAuth, requireCreator, async (c) => {
   if (!creator) return c.json({ error: 'Perfil não encontrado' }, 404);
 
   const balance = await creatorService.getCreatorBalance(creator.id);
+  const payoutLimit = await payoutService.getPayoutLimitInfo(creator.id);
 
-  return c.json({ balance });
+  // Calcular valor líquido após taxa PIX
+  const payoutFee = FEES.PAYOUT_PIX_FEE;
+  const netAvailable = Math.max(0, balance.available - payoutFee);
+
+  return c.json({
+    available: balance.available,
+    pending: balance.pending,
+    minPayout: LIMITS.MIN_PAYOUT_AMOUNT,
+    payoutFee, // Taxa PIX por saque
+    netAvailable, // Valor que o criador receberá após taxa
+    payoutLimit: payoutLimit || { used: 0, limit: 4, remaining: 4, isPro: false },
+  });
 });
 
 // GET /api/payouts/:id

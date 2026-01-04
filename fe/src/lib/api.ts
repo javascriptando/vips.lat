@@ -173,6 +173,12 @@ class ApiClient {
     return res.data;
   }
 
+  // Ativa chave PIX automaticamente usando o CPF do KYC aprovado
+  async activatePixKey(): Promise<{ message: string }> {
+    const res = await this.client.post('/creators/me/activate-pix');
+    return res.data;
+  }
+
   async getCreatorStats(): Promise<CreatorStats> {
     const res = await this.client.get<{ stats: CreatorStats }>('/creators/me/stats');
     return res.data.stats;
@@ -572,8 +578,8 @@ class ApiClient {
   }
 
   async getPaymentHistory(): Promise<Payment[]> {
-    const res = await this.client.get<Payment[]>('/payments');
-    return res.data;
+    const res = await this.client.get<{ data: Payment[]; pagination: unknown }>('/payments');
+    return res.data.data;
   }
 
   async getPaymentStatus(id: string): Promise<{ status: string }> {
@@ -588,16 +594,23 @@ class ApiClient {
 
   // Payouts
   async requestPayout(amount?: number): Promise<Payout> {
-    const res = await this.client.post<Payout>('/payouts', { amount });
-    return res.data;
+    const res = await this.client.post<{ message: string; payout: Payout }>('/payouts', { amount });
+    return res.data.payout;
   }
 
   async getPayoutHistory(): Promise<Payout[]> {
-    const res = await this.client.get<Payout[]>('/payouts');
-    return res.data;
+    const res = await this.client.get<{ data: Payout[]; pagination: unknown }>('/payouts');
+    return res.data.data;
   }
 
-  async getPayoutBalance(): Promise<{ available: number; pending: number; minPayout: number }> {
+  async getPayoutBalance(): Promise<{
+    available: number;
+    pending: number;
+    minPayout: number;
+    payoutFee: number;
+    netAvailable: number;
+    payoutLimit: { used: number; limit: number; remaining: number; isPro: boolean };
+  }> {
     const res = await this.client.get('/payouts/balance');
     return res.data;
   }
@@ -878,6 +891,312 @@ class ApiClient {
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
   }> {
     const res = await this.client.get('/messages/exclusive', { params });
+    return res.data;
+  }
+
+  // KYC
+  async getKycStatus(): Promise<{
+    status: 'none' | 'pending' | 'under_review' | 'approved' | 'rejected' | 'expired';
+    verification: {
+      id: string;
+      status: string;
+      submittedAt: string;
+      reviewedAt: string | null;
+      rejectedReason: string | null;
+    } | null;
+  }> {
+    const res = await this.client.get('/kyc/status');
+    const data = res.data;
+    // Map backend structure (kyc) to frontend expected (verification)
+    return {
+      status: data.status,
+      verification: data.kyc ? {
+        id: data.kyc.id,
+        status: data.kyc.status,
+        submittedAt: data.kyc.createdAt,
+        reviewedAt: data.kyc.reviewedAt,
+        rejectedReason: data.kyc.rejectionReason,
+      } : null,
+    };
+  }
+
+  async submitKyc(data: {
+    documentType: 'rg' | 'cnh' | 'passport';
+    documentFront: File;
+    documentBack?: File;
+    selfie: File;
+    fullName: string;
+    birthDate: string;
+    cpf: string;
+  }): Promise<{ message: string; kyc: { id: string; status: string } }> {
+    const formData = new FormData();
+    formData.append('data', JSON.stringify({
+      documentType: data.documentType,
+      fullName: data.fullName,
+      birthDate: data.birthDate,
+      documentNumber: data.cpf, // Backend expects documentNumber, not cpf
+    }));
+    formData.append('documentFront', data.documentFront);
+    if (data.documentBack) {
+      formData.append('documentBack', data.documentBack);
+    }
+    formData.append('selfie', data.selfie);
+
+    const res = await this.client.post('/kyc/submit', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 2 * 60 * 1000, // 2 minutes for upload
+    });
+    return res.data;
+  }
+
+  // Reports
+  async createReport(data: {
+    targetType: 'content' | 'creator' | 'message' | 'comment';
+    targetId: string;
+    reason: 'illegal_content' | 'underage' | 'harassment' | 'spam' | 'copyright' | 'impersonation' | 'fraud' | 'other';
+    description?: string;
+    evidenceUrls?: string[];
+  }): Promise<{ message: string; report: { id: string } }> {
+    const res = await this.client.post('/reports', data);
+    return res.data;
+  }
+
+  // WebSocket Token
+  async getWsToken(): Promise<{ token: string }> {
+    const res = await this.client.get('/auth/ws-token');
+    return res.data;
+  }
+
+  // ==================== ADMIN API ====================
+
+  // Dashboard
+  async getAdminStats(): Promise<{
+    usersTotal: number;
+    creatorsTotal: number;
+    pendingKyc: number;
+    pendingReports: number;
+    pendingReportsHighPriority: number;
+    openFraudFlags: number;
+    revenue30Days: number;
+  }> {
+    const res = await this.client.get('/admin/stats');
+    const data = res.data;
+    // Map backend structure to frontend expected structure
+    return {
+      usersTotal: data.overview?.totalUsers || 0,
+      creatorsTotal: data.overview?.totalCreators || 0,
+      pendingKyc: data.pending?.kyc || 0,
+      pendingReports: data.pending?.reports || 0,
+      pendingReportsHighPriority: 0, // TODO: add high priority count
+      openFraudFlags: data.pending?.fraudFlags || 0,
+      revenue30Days: data.last30Days?.platformRevenue || 0,
+    };
+  }
+
+  // KYC Management (Admin)
+  async getAdminKycList(params?: { page?: number; pageSize?: number; status?: string }): Promise<{
+    data: Array<{
+      id: string;
+      creatorId: string;
+      creatorDisplayName: string;
+      creatorUsername: string;
+      status: string;
+      documentType: string;
+      fullName: string;
+      createdAt: string;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/kyc/admin', { params });
+    return res.data;
+  }
+
+  async getAdminKycDetail(id: string): Promise<{
+    kyc: {
+      id: string;
+      creatorId: string;
+      status: string;
+      documentType: string;
+      documentFrontUrl: string;
+      documentBackUrl?: string;
+      selfieUrl: string;
+      fullName: string;
+      birthDate: string;
+      documentNumber: string;
+      createdAt: string;
+      creator: {
+        displayName: string;
+        username: string;
+      };
+    };
+  }> {
+    const res = await this.client.get(`/kyc/admin/${id}`);
+    return res.data;
+  }
+
+  async reviewKyc(id: string, status: 'approved' | 'rejected', rejectionReason?: string): Promise<{ message: string }> {
+    const res = await this.client.post(`/kyc/admin/${id}/review`, { status, rejectionReason });
+    return res.data;
+  }
+
+  // Reports Management (Admin)
+  async getAdminReports(params?: { page?: number; pageSize?: number; status?: string }): Promise<{
+    data: Array<{
+      id: string;
+      targetType: string;
+      targetId: string;
+      reason: string;
+      description?: string;
+      status: string;
+      priority: number;
+      reporterUsername: string;
+      createdAt: string;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/reports/admin', { params });
+    return res.data;
+  }
+
+  async getAdminReportDetail(id: string): Promise<{
+    report: {
+      id: string;
+      targetType: string;
+      targetId: string;
+      reason: string;
+      description?: string;
+      evidenceUrls?: string[];
+      status: string;
+      priority: number;
+      reporter: {
+        id: string;
+        username: string;
+        name: string;
+      };
+      createdAt: string;
+    };
+  }> {
+    const res = await this.client.get(`/reports/admin/${id}`);
+    return res.data;
+  }
+
+  async reviewReport(id: string, data: {
+    action: 'dismissed' | 'warning_issued' | 'content_removed' | 'creator_suspended' | 'user_banned';
+    notes?: string;
+    suspensionDays?: number;
+  }): Promise<{ message: string }> {
+    const res = await this.client.post(`/reports/admin/${id}/review`, data);
+    return res.data;
+  }
+
+  // User Management (Admin)
+  async getAdminUsers(params?: { page?: number; pageSize?: number; search?: string; role?: string }): Promise<{
+    data: Array<{
+      id: string;
+      email: string;
+      name?: string;
+      username: string;
+      role: string;
+      isSuspended: boolean;
+      createdAt: string;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/admin/users', { params });
+    return res.data;
+  }
+
+  async suspendUser(id: string, data: {
+    type: 'temporary' | 'permanent';
+    reason: string;
+    durationDays?: number;
+  }): Promise<{ message: string }> {
+    const res = await this.client.post(`/admin/users/${id}/suspend`, data);
+    return res.data;
+  }
+
+  async unsuspendUser(id: string, reason: string): Promise<{ message: string }> {
+    const res = await this.client.post(`/admin/users/${id}/unsuspend`, { reason });
+    return res.data;
+  }
+
+  // Creator Management (Admin)
+  async getAdminCreators(params?: { page?: number; pageSize?: number; search?: string; kycStatus?: string }): Promise<{
+    data: Array<{
+      id: string;
+      displayName: string;
+      username: string;
+      kycStatus: string;
+      payoutsBlocked: boolean;
+      subscriberCount: number;
+      createdAt: string;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/admin/creators', { params });
+    // Map nested user data to flat structure
+    return {
+      data: res.data.data.map((creator: { user?: { username?: string }; [key: string]: unknown }) => ({
+        ...creator,
+        username: creator.user?.username || '',
+      })),
+      pagination: res.data.pagination,
+    };
+  }
+
+  async blockCreatorPayouts(id: string, reason: string): Promise<{ message: string }> {
+    const res = await this.client.post(`/admin/creators/${id}/block-payouts`, { reason });
+    return res.data;
+  }
+
+  async unblockCreatorPayouts(id: string): Promise<{ message: string }> {
+    const res = await this.client.post(`/admin/creators/${id}/unblock-payouts`);
+    return res.data;
+  }
+
+  // Fraud Flags (Admin)
+  async getAdminFraudFlags(params?: { page?: number; pageSize?: number; status?: string }): Promise<{
+    data: Array<{
+      id: string;
+      type: string;
+      severity: number;
+      description: string;
+      status: string;
+      creatorId?: string;
+      creatorDisplayName?: string;
+      createdAt: string;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/admin/fraud-flags', { params });
+    return res.data;
+  }
+
+  async resolveFraudFlag(id: string, resolution: string): Promise<{ message: string }> {
+    const res = await this.client.post(`/admin/fraud-flags/${id}/resolve`, { resolution });
+    return res.data;
+  }
+
+  // Audit Logs (Admin)
+  async getAdminAuditLogs(params?: { page?: number; pageSize?: number; action?: string }): Promise<{
+    data: Array<{
+      id: string;
+      action: string;
+      targetType: string;
+      targetId: string;
+      details: Record<string, unknown>;
+      adminUsername: string;
+      createdAt: string;
+    }>;
+    pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  }> {
+    const res = await this.client.get('/admin/audit-logs', { params });
+    return res.data;
+  }
+
+  // Remove content (Admin)
+  async removeContent(id: string, reason: string): Promise<{ message: string }> {
+    const res = await this.client.delete(`/admin/content/${id}`, { data: { reason } });
     return res.data;
   }
 }

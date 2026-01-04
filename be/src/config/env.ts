@@ -4,8 +4,6 @@ const envSchema = z.object({
   // App
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(7777),
-  PUBLIC_URL: z.string().default('http://localhost:7777'),
-  FRONTEND_URL: z.string().default('http://localhost:3000'),
 
   // Database
   DATABASE_URL: z.string(),
@@ -24,9 +22,9 @@ const envSchema = z.object({
   S3_REGION: z.string().default('us-east-1'),
   S3_ENDPOINT: z.string(),
 
-  // Asaas
-  ASAAS_API_KEY: z.string(),
-  ASAAS_SANDBOX: z.coerce.boolean().default(false),
+  // Asaas - ambas chaves disponíveis, seleção automática por NODE_ENV
+  ASAAS_API_KEY_SANDBOX: z.string(),
+  ASAAS_API_KEY_PROD: z.string(),
   ASAAS_WEBHOOK_TOKEN: z.string().optional(),
 
   // Email
@@ -45,7 +43,20 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
+// Valores base do schema
+const baseEnv = parsed.data;
 
-export const isDev = env.NODE_ENV === 'development';
-export const isProd = env.NODE_ENV === 'production';
+// Determina ambiente (dev ou prod)
+export const isDev = baseEnv.NODE_ENV !== 'production';
+export const isProd = baseEnv.NODE_ENV === 'production';
+
+// Exporta env com valores derivados baseados em NODE_ENV
+export const env = {
+  ...baseEnv,
+  // URLs baseadas no ambiente
+  PUBLIC_URL: isProd ? 'https://api.vips.lat' : 'http://localhost:7777',
+  FRONTEND_URL: isProd ? 'https://vips.lat' : 'http://localhost:3000',
+  // Asaas: seleciona chave automaticamente
+  ASAAS_API_KEY: isProd ? baseEnv.ASAAS_API_KEY_PROD : baseEnv.ASAAS_API_KEY_SANDBOX,
+  ASAAS_SANDBOX: !isProd, // true em dev/test, false em prod
+};

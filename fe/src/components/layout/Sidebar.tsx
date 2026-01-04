@@ -70,13 +70,8 @@ export function Sidebar({ isMobileOpen, setIsMobileOpen }: SidebarProps) {
       >
         {/* Header */}
         <div className="p-6 border-b border-dark-800 flex items-center justify-between">
-          <Link to={isCreator ? '/dashboard' : '/feed'} className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg shadow-brand-500/20">
-              V
-            </div>
-            <span className="text-xl font-bold tracking-tight text-white">
-              VIPS<span className="text-brand-500">.lat</span>
-            </span>
+          <Link to={isCreator ? '/dashboard' : '/feed'}>
+            <img src="/logo.png" alt="VIPS.lat" className="h-7" />
           </Link>
           <button onClick={() => setIsMobileOpen(false)} className="md:hidden text-gray-400">
             <X size={24} />

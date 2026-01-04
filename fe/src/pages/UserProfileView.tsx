@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ShoppingBag, Bookmark, Lock, Camera, LogOut, Heart, UserMinus, Users } from 'lucide-react';
+import { CheckCircle2, ShoppingBag, Bookmark, Lock, Camera, LogOut, Heart, UserMinus, Users, Layers, Crown, Gift } from 'lucide-react';
 import { Card, Avatar, Button, Input, ResponsiveModal } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -405,7 +405,7 @@ export function UserProfileView() {
           {activeTab === 'history' && (
             <Card className="animate-slide-up">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="font-bold text-white">Transações Realizadas (PIX)</h3>
+                <h3 className="font-bold text-white">Histórico de Compras</h3>
               </div>
               {isLoadingHistory ? (
                 <div className="space-y-4">
@@ -421,7 +421,6 @@ export function UserProfileView() {
                         <th className="p-4 font-medium">Tipo</th>
                         <th className="p-4 font-medium text-center">Data</th>
                         <th className="p-4 font-medium text-right">Valor</th>
-                        <th className="p-4 font-medium text-center">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-dark-700">
@@ -430,31 +429,31 @@ export function UserProfileView() {
                           <td className="p-4">
                             <div className="flex items-center gap-3">
                               <div className="p-2 bg-dark-700 rounded-lg text-gray-300">
-                                {tx.type === 'ppv' ? <Lock size={16} /> : <CheckCircle2 size={16} />}
+                                {tx.type === 'ppv' && <Lock size={16} />}
+                                {tx.type === 'subscription' && <CheckCircle2 size={16} />}
+                                {tx.type === 'pack' && <Layers size={16} />}
+                                {tx.type === 'tip' && <Gift size={16} />}
+                                {tx.type === 'pro_plan' && <Crown size={16} />}
                               </div>
-                              <span className="text-sm font-medium text-white">
-                                {tx.type === 'subscription' ? 'Assinatura' : tx.type === 'ppv' ? 'PPV' : tx.type === 'tip' ? 'Gorjeta' : tx.type}
-                              </span>
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium text-white">
+                                  {tx.type === 'subscription' && 'Assinatura'}
+                                  {tx.type === 'ppv' && 'Conteúdo PPV'}
+                                  {tx.type === 'tip' && 'Gorjeta'}
+                                  {tx.type === 'pack' && 'Pacote'}
+                                  {tx.type === 'pro_plan' && 'Plano PRO'}
+                                </span>
+                                {tx.description && (
+                                  <span className="text-xs text-gray-500 truncate max-w-[150px]">{tx.description}</span>
+                                )}
+                              </div>
                             </div>
                           </td>
                           <td className="p-4 text-center text-sm text-gray-500">
-                            {formatDate(tx.createdAt)}
+                            {formatDate(tx.paidAt || tx.createdAt)}
                           </td>
-                          <td className="p-4 text-right text-sm font-bold text-white">
+                          <td className="p-4 text-right text-sm font-bold text-green-400">
                             {formatCurrency(tx.amount)}
-                          </td>
-                          <td className="p-4 text-center">
-                            <span
-                              className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide
-                                ${tx.status === 'confirmed' ? 'bg-green-500/10 text-green-500' : ''}
-                                ${tx.status === 'failed' || tx.status === 'expired' ? 'bg-red-500/10 text-red-500' : ''}
-                                ${tx.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' : ''}
-                              `}
-                            >
-                              {tx.status === 'confirmed' && 'Pago'}
-                              {(tx.status === 'failed' || tx.status === 'expired') && 'Falhou'}
-                              {tx.status === 'pending' && 'Pendente'}
-                            </span>
                           </td>
                         </tr>
                       ))}

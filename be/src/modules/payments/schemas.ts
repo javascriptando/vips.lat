@@ -46,7 +46,7 @@ export const listPaymentsSchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(50).default(20),
   type: z.enum(['subscription', 'ppv', 'tip', 'pro_plan', 'pack', 'all']).default('all'),
-  status: z.enum(['pending', 'confirmed', 'failed', 'refunded', 'expired', 'all']).default('all'),
+  status: z.enum(['pending', 'confirmed', 'failed', 'refunded', 'expired', 'all']).default('confirmed'),
 });
 
 export type CreateSubscriptionPaymentInput = z.infer<typeof createSubscriptionPaymentSchema>;

@@ -20,6 +20,14 @@ export const users = pgTable('users', {
   cpfCnpj: varchar('cpf_cnpj', { length: 18 }),
   asaasCustomerId: varchar('asaas_customer_id', { length: 50 }),
 
+  // Phone
+  phoneNumber: varchar('phone_number', { length: 20 }),
+  phoneVerified: boolean('phone_verified').default(false).notNull(),
+
+  // Suspension
+  isSuspended: boolean('is_suspended').default(false).notNull(),
+  suspendedAt: timestamp('suspended_at', { withTimezone: true }),
+
   // Metadata
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

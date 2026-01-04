@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User, Creator } from '@/types';
 import { api } from '@/lib/api';
+import { queryClient } from '@/lib/queryClient';
 
 interface BecomeCreatorInput {
   displayName: string;
@@ -65,6 +66,8 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         await api.logout();
+        // Clear all cached data from React Query
+        queryClient.clear();
         set({ user: null, creator: null, isAuthenticated: false });
       },
 

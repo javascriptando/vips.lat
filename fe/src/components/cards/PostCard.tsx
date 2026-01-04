@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Card, Avatar, Button } from '@/components/ui';
 import { MediaPreview } from '@/components/MediaPreview';
+import { ReportButton } from '@/components/ReportButton';
 import { api } from '@/lib/api';
 import { formatCurrency, formatRelativeTime, resolveMediaUrl, formatCount } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -394,6 +395,13 @@ export function PostCard({
             >
               <Share2 size={isCompact ? 18 : 22} />
             </button>
+
+            <ReportButton
+              targetType="content"
+              targetId={post.id}
+              variant="icon"
+              className="!p-1.5"
+            />
           </div>
         </div>
       </div>

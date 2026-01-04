@@ -7,6 +7,7 @@ export interface User {
   avatarUrl: string | null;
   emailVerified: boolean;
   isCreator: boolean;
+  role: 'user' | 'creator' | 'admin';
   createdAt: string;
 }
 
@@ -76,7 +77,7 @@ export interface Payment {
   payerId?: string;
   userId?: string;
   creatorId?: string;
-  type: 'subscription' | 'ppv' | 'tip' | 'pro_plan';
+  type: 'subscription' | 'ppv' | 'tip' | 'pro_plan' | 'pack';
   status: 'pending' | 'confirmed' | 'failed' | 'refunded' | 'expired';
   amount: number;
   pixFee: number;
@@ -84,6 +85,7 @@ export interface Payment {
   creatorAmount: number;
   description?: string;
   createdAt: string;
+  paidAt?: string;
 }
 
 export interface Payout {
@@ -91,7 +93,8 @@ export interface Payout {
   creatorId: string;
   amount: number;
   status: 'pending' | 'processing' | 'completed' | 'failed';
-  pixKey: string;
+  asaasTransferId?: string | null;
+  failedReason?: string | null;
   createdAt: string;
   processedAt: string | null;
 }

@@ -9,11 +9,10 @@ import {
   CheckCircle2,
   Lock,
   AlertCircle,
-  Package,
   Image,
   X,
   DollarSign,
-  Gift,
+  Layers,
   Unlock,
   Play,
 } from 'lucide-react';
@@ -164,37 +163,45 @@ function PackSelectorModal({
         <div className="overflow-y-auto max-h-[50vh] p-4 space-y-3">
           {packs.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              <Package size={32} className="mx-auto mb-2 opacity-50" />
+              <Layers size={32} className="mx-auto mb-2 opacity-50" />
               <p>Você não tem pacotes criados</p>
               <Link to="/creator/dashboard" className="text-brand-500 hover:underline text-sm">
                 Criar pacote
               </Link>
             </div>
           ) : (
-            packs.map((pack) => (
-              <button
-                key={pack.id}
-                onClick={() => onSelect(pack)}
-                className="w-full flex items-center gap-3 p-3 bg-dark-700 hover:bg-dark-600 rounded-xl transition-colors text-left"
-              >
-                {pack.coverUrl ? (
-                  <img
-                    src={resolveMediaUrl(pack.coverUrl) || ''}
-                    alt={pack.name}
-                    className="w-14 h-14 object-cover rounded-lg"
-                  />
-                ) : (
-                  <div className="w-14 h-14 bg-dark-600 rounded-lg flex items-center justify-center">
-                    <Gift size={24} className="text-brand-500" />
+            <div className="grid grid-cols-2 gap-3">
+              {packs.map((pack) => (
+                <button
+                  key={pack.id}
+                  onClick={() => onSelect(pack)}
+                  className="group"
+                >
+                  {/* Mini Gift Box */}
+                  <div className="relative aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-brand-600/20 via-dark-800 to-dark-900 border-2 border-brand-500/30 hover:border-brand-500/60 transition-all">
+                    {/* Gift ribbon - vertical */}
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-full bg-gradient-to-b from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+                    {/* Gift ribbon - horizontal */}
+                    <div className="absolute top-1/3 left-0 w-full h-3 bg-gradient-to-r from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+                    {/* Ribbon bow */}
+                    <div className="absolute top-[calc(33%-8px)] left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-brand-500/30 border border-brand-500/50 flex items-center justify-center">
+                      <Layers size={10} className="text-brand-400" />
+                    </div>
+
+                    {/* Content */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-2 pt-10">
+                      <h3 className="font-bold text-white text-center text-[10px] leading-tight line-clamp-2">{pack.name}</h3>
+                      <p className="text-[9px] text-gray-400 mt-0.5">{pack.mediaCount} itens</p>
+                    </div>
+
+                    {/* Price */}
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5">
+                      <span className="text-brand-400 font-bold text-xs block text-center">{formatCurrency(pack.price)}</span>
+                    </div>
                   </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white truncate">{pack.name}</p>
-                  <p className="text-sm text-gray-400">{pack.mediaCount} itens</p>
-                </div>
-                <span className="font-bold text-brand-500">{formatCurrency(pack.price)}</span>
-              </button>
-            ))
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -499,7 +506,6 @@ function ChatView({
           messages.map((msg) => {
             const isMe = msg.senderId === user?.id;
             const hasPPV = msg.ppvPrice && msg.ppvPrice > 0 && !msg.isPurchased;
-            const hasPack = msg.pack && !msg.packPurchased;
 
             return (
               <div
@@ -513,63 +519,58 @@ function ChatView({
                       : 'bg-dark-700 text-gray-100 rounded-bl-sm'
                   }`}
                 >
-                  {/* Pack attachment */}
+                  {/* Pack attachment - Gift Box Style */}
                   {msg.pack && (
-                    <div className="bg-black/20">
-                      {/* Pack card - clickable when purchased or is creator */}
-                      <button
-                        onClick={() => {
-                          if (msg.packPurchased || isMe) {
-                            navigate(`/pack/${msg.pack!.id}`);
-                          } else if (!isMe) {
-                            handleUnlock(msg, 'pack');
-                          }
-                        }}
-                        className="w-full text-left group"
-                      >
-                        {/* Cover image or placeholder */}
-                        <div className="relative aspect-video overflow-hidden">
-                          {msg.pack.coverUrl ? (
-                            <img
-                              src={resolveMediaUrl(msg.pack.coverUrl) || ''}
-                              alt={msg.pack.name}
-                              className={`w-full h-full object-cover ${(msg.packPurchased || isMe) ? 'group-hover:scale-105' : 'blur-sm'} transition-transform`}
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-brand-500/30 to-purple-500/30 flex items-center justify-center">
-                              <Gift size={48} className="text-brand-400" />
-                            </div>
-                          )}
-                          {/* Overlay for unpurchased */}
-                          {!msg.packPurchased && !isMe && (
-                            <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
-                              <Lock size={24} className="text-white mb-2" />
-                              <span className="text-white font-bold">{formatCurrency(msg.pack.price)}</span>
-                            </div>
-                          )}
-                          {/* Badge */}
+                    <button
+                      onClick={() => {
+                        if (msg.packPurchased || isMe) {
+                          navigate(`/pack/${msg.pack!.id}`);
+                        } else if (!isMe) {
+                          handleUnlock(msg, 'pack');
+                        }
+                      }}
+                      className="w-full group"
+                    >
+                      <div className="relative aspect-square max-w-[200px] mx-auto rounded-2xl overflow-hidden bg-gradient-to-br from-brand-600/20 via-dark-800 to-dark-900 border-2 border-brand-500/30 hover:border-brand-500/60 transition-all shadow-lg hover:shadow-brand-500/20 hover:scale-[1.02] mt-4">
+                        {/* Gift ribbon - vertical */}
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-full bg-gradient-to-b from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+                        {/* Gift ribbon - horizontal */}
+                        <div className="absolute top-1/3 left-0 w-full h-4 bg-gradient-to-r from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+
+                        {/* Content */}
+                        <div className="absolute inset-0 flex flex-col items-center justify-center p-3 pt-12">
+                          <h3 className="font-bold text-white text-center text-xs leading-tight line-clamp-2 mb-1">{msg.pack.name}</h3>
+                          <div className="flex items-center gap-1 text-gray-400 text-[10px]">
+                            <Layers size={10} />
+                            <span>{msg.pack.mediaCount} itens</span>
+                          </div>
+                        </div>
+                      
+                        {/* Purchased badge */}
+                        {msg.packPurchased && !isMe && (
                           <div className="absolute top-2 left-2">
-                            <span className="bg-brand-500/90 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <Gift size={10} />
-                              Pacote
+                            <span className="bg-green-500/90 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                              ✓ Comprado
                             </span>
                           </div>
-                          {/* Purchased badge */}
-                          {msg.packPurchased && !isMe && (
-                            <div className="absolute top-2 right-2">
-                              <span className="bg-green-500/90 text-white text-[10px] px-2 py-0.5 rounded-full">
-                                ✓ Comprado
-                              </span>
-                            </div>
-                          )}
+                        )}
+
+                        {/* Lock overlay for unpurchased */}
+                        {!msg.packPurchased && !isMe && (
+                          <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center">
+                            <Lock size={20} className="text-white mb-1" />
+                            <span className="text-white font-bold text-sm">{formatCurrency(msg.pack.price)}</span>
+                          </div>
+                        )}
+
+                        {/* Bottom info */}
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-4">
+                          <div className="flex items-center justify-center">
+                            <span className="text-brand-400 font-bold text-sm">{formatCurrency(msg.pack.price)}</span>
+                          </div>
                         </div>
-                        {/* Pack info */}
-                        <div className="p-3">
-                          <p className="font-semibold truncate">{msg.pack.name}</p>
-                          <p className="text-sm opacity-70">{msg.pack.mediaCount} itens</p>
-                        </div>
-                      </button>
-                    </div>
+                      </div>
+                    </button>
                   )}
 
                   {/* Media with optional PPV */}
@@ -756,8 +757,13 @@ function ChatView({
                 )}
                 {selectedPack && (
                   <>
-                    <div className="w-14 h-14 bg-gradient-to-br from-brand-500/30 to-purple-500/30 rounded-lg flex items-center justify-center border border-brand-500/20">
-                      <Gift size={24} className="text-brand-400" />
+                    {/* Mini Gift Box Preview */}
+                    <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-gradient-to-br from-brand-600/20 via-dark-800 to-dark-900 border border-brand-500/30">
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-full bg-gradient-to-b from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+                      <div className="absolute top-1/3 left-0 w-full h-2 bg-gradient-to-r from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+                      <div className="absolute top-[calc(33%-6px)] left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-brand-500/30 border border-brand-500/50 flex items-center justify-center">
+                        <Layers size={8} className="text-brand-400" />
+                      </div>
                     </div>
                     <div className="flex-1">
                       <p className="text-sm text-white font-semibold">{selectedPack.name}</p>
@@ -802,7 +808,7 @@ function ChatView({
                     className="p-2.5 bg-dark-700 hover:bg-dark-600 rounded-lg text-gray-400 hover:text-brand-500 transition-colors"
                     title="Enviar pacote"
                   >
-                    <Gift size={20} />
+                    <Layers size={20} />
                   </button>
                 </div>
               )}
@@ -924,10 +930,35 @@ export function MessagesView() {
     queryFn: () => api.getConversations(),
   });
 
-  const allConversations = [
-    ...(creatorConvos?.conversations || []).map(c => ({ ...c, isCreatorConvo: true })),
-    ...(userConvos?.conversations || []).map(c => ({ ...c, isCreatorConvo: false })),
-  ].sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+  // Combine and deduplicate conversations by ID
+  // Creator conversations take priority (isCreatorConvo: true)
+  type CreatorConvo = NonNullable<typeof creatorConvos>['conversations'][0] & { isCreatorConvo: boolean };
+  type UserConvo = NonNullable<typeof userConvos>['conversations'][0] & { isCreatorConvo: boolean };
+  type AnyConvo = CreatorConvo | UserConvo;
+
+  const allConversations = (() => {
+    const creatorConvList = (creatorConvos?.conversations || []).map(c => ({ ...c, isCreatorConvo: true as const }));
+    const userConvList = (userConvos?.conversations || []).map(c => ({ ...c, isCreatorConvo: false as const }));
+
+    // Use a Map to deduplicate by ID, creator convos take priority
+    const convMap = new Map<string, AnyConvo>();
+
+    // Add creator conversations first (they take priority)
+    for (const conv of creatorConvList) {
+      convMap.set(conv.id, conv);
+    }
+
+    // Add user conversations only if not already present
+    for (const conv of userConvList) {
+      if (!convMap.has(conv.id)) {
+        convMap.set(conv.id, conv);
+      }
+    }
+
+    return Array.from(convMap.values()).sort(
+      (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+    );
+  })();
 
   const isLoading = loadingCreator || loadingUser;
 

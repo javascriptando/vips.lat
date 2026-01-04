@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { DollarSign, QrCode, Shield } from 'lucide-react';
+import { DollarSign, QrCode, Crown } from 'lucide-react';
 import { Card, CardHeader, Button, Badge } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -34,9 +34,18 @@ export function Earnings() {
     },
   });
 
+  const payoutLimit = balance?.payoutLimit;
+  const canRequestPayout =
+    (balance?.available || 0) >= (balance?.minPayout || 2000) &&
+    (payoutLimit?.remaining || 0) > 0;
+
   const handleRequestPayout = () => {
     if ((balance?.available || 0) < (balance?.minPayout || 2000)) {
       toast.error(`Saldo mínimo para saque: ${formatCurrency(balance?.minPayout || 2000)}`);
+      return;
+    }
+    if ((payoutLimit?.remaining || 0) <= 0) {
+      toast.error(`Limite de ${payoutLimit?.limit || 4} saques/mês atingido`);
       return;
     }
     setIsRequesting(true);
@@ -56,29 +65,49 @@ export function Earnings() {
           <div>
             <p className="text-gray-400 mb-1">Saldo Disponível para Saque</p>
             <h2 className="text-4xl font-bold text-white">{formatCurrency(balance?.available || 0)}</h2>
-            <p className="text-sm text-gray-500 mt-2">Saldo pendente: {formatCurrency(balance?.pending || 0)}</p>
+            <div className="mt-2 space-y-1">
+              <p className="text-sm text-gray-500">Saldo pendente: {formatCurrency(balance?.pending || 0)}</p>
+              {balance?.payoutFee && balance.available > 0 && (
+                <div className="text-sm">
+                  <span className="text-gray-500">Taxa PIX: </span>
+                  <span className="text-red-400">-{formatCurrency(balance.payoutFee)}</span>
+                  <span className="text-gray-500 mx-2">=</span>
+                  <span className="text-green-400 font-medium">
+                    Você recebe: {formatCurrency(balance.netAvailable || 0)}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-          <Button
-            onClick={handleRequestPayout}
-            isLoading={isRequesting}
-            disabled={(balance?.available || 0) < (balance?.minPayout || 2000)}
-            className="bg-green-600 hover:bg-green-500"
-          >
-            <DollarSign size={20} /> Solicitar Saque PIX
-          </Button>
+          <div className="flex flex-col items-end gap-2">
+            <Button
+              onClick={handleRequestPayout}
+              isLoading={isRequesting}
+              disabled={!canRequestPayout}
+              className="bg-green-600 hover:bg-green-500"
+            >
+              <DollarSign size={20} /> Solicitar Saque PIX
+            </Button>
+            {payoutLimit && (
+              <p className="text-xs text-gray-500">
+                {payoutLimit.remaining} de {payoutLimit.limit} saques restantes no mês
+                {payoutLimit.isPro && <Crown size={12} className="inline ml-1 text-yellow-500" />}
+              </p>
+            )}
+          </div>
         </div>
         <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-brand-500/10 to-transparent pointer-events-none" />
       </div>
 
-      {/* Info Card */}
+      {/* Payout Limits Info */}
       <Card>
-        <CardHeader icon={<QrCode size={20} className="text-blue-500" />} title="Informações de Pagamento" />
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 flex gap-3">
-          <Shield className="text-blue-500 shrink-0" size={20} />
-          <p className="text-sm text-blue-200">
-            Seus pagamentos são processados automaticamente via Asaas. Os saques são enviados para a chave PIX
-            configurada em seu perfil. Mínimo para saque: {formatCurrency(balance?.minPayout || 2000)}.
-          </p>
+        <CardHeader icon={<QrCode size={20} className="text-blue-500" />} title="Limites" />
+        <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center gap-2 text-gray-400">
+            <span>{payoutLimit?.used || 0}/{payoutLimit?.limit || 4} saques usados</span>
+            {payoutLimit?.isPro && <Crown size={14} className="text-yellow-500" />}
+          </div>
+          <span className="text-gray-500">Mín: {formatCurrency(balance?.minPayout || 2000)}</span>
         </div>
       </Card>
 

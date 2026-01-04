@@ -15,10 +15,11 @@ import {
   UserPlus,
   UserCheck,
   LogIn,
-  Package,
+  Layers,
 } from 'lucide-react';
 import { Card, Avatar, Button } from '@/components/ui';
 import { PackCard } from '@/components/cards';
+import { ReportButton } from '@/components/ReportButton';
 import { MediaViewer, type MediaPost } from '@/components/MediaViewer';
 import { PaymentModal } from '@/components/PaymentModal';
 import { api } from '@/lib/api';
@@ -349,13 +350,19 @@ export function CreatorProfile() {
                   >
                     <Share2 size={20} />
                   </button>
+                  <ReportButton
+                    targetType="creator"
+                    targetId={creator.id}
+                    variant="icon"
+                    className="!bg-dark-800 !border !border-dark-700 !rounded-lg hover:!bg-dark-700"
+                  />
                   {!isAuthenticated ? (
                     <Button onClick={handleSubscribeClick}>
                       <LogIn size={18} /> Entrar para Assinar
                     </Button>
                   ) : isSubscribed ? (
                     <Button variant="secondary" disabled>
-                      <Check size={18} /> Assinando
+                      <Check size={18} /> Assinado
                     </Button>
                   ) : (
                     <Button onClick={handleSubscribeClick} isLoading={isSubscribing}>
@@ -448,7 +455,7 @@ export function CreatorProfile() {
                   activeTab === 'packs' ? 'border-brand-500 text-brand-500' : 'border-transparent text-gray-400 hover:text-white'
                 }`}
               >
-                <Package size={18} /> Pacotes
+                <Layers size={18} /> Pacotes
               </button>
             )}
           </div>
@@ -574,7 +581,7 @@ export function CreatorProfile() {
             ))}
             {(!packsData?.data || packsData.data.length === 0) && (
               <div className="col-span-full text-center py-12 text-gray-500">
-                <Package size={48} className="mx-auto mb-4 opacity-50" />
+                <Layers size={48} className="mx-auto mb-4 opacity-50" />
                 <p>Nenhum pacote disponível</p>
               </div>
             )}

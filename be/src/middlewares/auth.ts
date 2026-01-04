@@ -3,8 +3,8 @@ import { getCookie } from 'hono/cookie';
 import { lucia } from '@/lib/auth';
 import type { User, Session } from 'lucia';
 import { db } from '@/db';
-import { creators } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { creators, accountSuspensions } from '@/db/schema';
+import { eq, and, desc } from 'drizzle-orm';
 
 // Tipos para o contexto
 export interface AuthVariables {
@@ -46,6 +46,35 @@ export async function requireAuth(c: Context, next: Next) {
 
   if (!user) {
     return c.json({ error: 'Não autorizado' }, 401);
+  }
+
+  // Verificar se usuário está suspenso
+  if (user.isSuspended) {
+    const suspension = await db.query.accountSuspensions.findFirst({
+      where: and(
+        eq(accountSuspensions.userId, user.id),
+        eq(accountSuspensions.isActive, true)
+      ),
+      orderBy: [desc(accountSuspensions.createdAt)],
+    });
+
+    if (suspension) {
+      // Verificar se suspensão temporária expirou
+      if (suspension.endsAt && new Date() > suspension.endsAt) {
+        // Expirou - remover suspensão
+        await db
+          .update(accountSuspensions)
+          .set({ isActive: false })
+          .where(eq(accountSuspensions.id, suspension.id));
+      } else {
+        return c.json({
+          error: 'Conta suspensa',
+          reason: suspension.reason,
+          type: suspension.type,
+          endsAt: suspension.endsAt,
+        }, 403);
+      }
+    }
   }
 
   return next();

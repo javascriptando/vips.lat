@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bookmark, ShoppingBag, Gift, Sparkles, FolderHeart } from 'lucide-react';
+import { Bookmark, ShoppingBag, Layers, Sparkles, FolderHeart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card } from '@/components/ui';
 import { PostCard, PackCard } from '@/components/cards';
@@ -139,7 +139,7 @@ export function CollectionView() {
   const tabs = [
     { id: 'saved' as Tab, icon: Bookmark, label: 'Salvos', count: savedRaw.length },
     { id: 'purchased' as Tab, icon: ShoppingBag, label: 'Comprados', count: purchasedPosts.length },
-    { id: 'packs' as Tab, icon: Gift, label: 'Pacotes', count: purchasedPacks.length },
+    { id: 'packs' as Tab, icon: Layers, label: 'Pacotes', count: purchasedPacks.length },
     { id: 'exclusive' as Tab, icon: Sparkles, label: 'Exclusivos', count: exclusiveItems.length },
   ];
 
@@ -250,7 +250,7 @@ export function CollectionView() {
                 ))}
                 {purchasedPacks.length === 0 && (
                   <Card className="col-span-2 text-center py-20">
-                    <Gift size={48} className="mx-auto mb-4 text-dark-500" />
+                    <Layers size={48} className="mx-auto mb-4 text-dark-500" />
                     <p className="text-gray-400">Você ainda não comprou nenhum pacote.</p>
                     <Link to="/explore" className="text-brand-500 hover:underline mt-2 inline-block">
                       Explorar pacotes

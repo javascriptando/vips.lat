@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Gift, Lock, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Layers, Lock, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { MediaViewer, type MediaPost } from '@/components/MediaViewer';
 import { PaymentModal } from '@/components/PaymentModal';
-import { PackCard } from '@/components/cards';
 import { api } from '@/lib/api';
 import { resolveMediaUrl, formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -80,7 +79,7 @@ export function PackView() {
   };
 
   // Build MediaPost for carousel viewer
-  const mediaPost: MediaPost | null = pack ? {
+  const mediaPost: MediaPost | null = pack && pack.creator ? {
     id: pack.id,
     media: media.map((m) => ({
       url: m.url,
@@ -90,13 +89,13 @@ export function PackView() {
     })),
     hasAccess: hasPurchased,
     visibility: 'public',
-    creator: pack.creator ? {
+    creator: {
       id: pack.creator.id,
       displayName: pack.creator.displayName,
       username: pack.creator.username,
       avatarUrl: pack.creator.avatarUrl || undefined,
       isVerified: pack.creator.verified,
-    } : undefined,
+    },
     likeCount: 0,
     commentCount: 0,
     text: pack.name,
@@ -114,7 +113,7 @@ export function PackView() {
   if (error || !pack) {
     return (
       <div className="max-w-xl mx-auto px-4 py-8 text-center">
-        <Gift size={48} className="mx-auto mb-4 text-dark-500" />
+        <Layers size={48} className="mx-auto mb-4 text-dark-500" />
         <h1 className="text-xl font-bold text-white mb-2">Pacote não encontrado</h1>
         <p className="text-gray-400 mb-4">Este pacote pode ter sido removido ou não existe.</p>
         <Button onClick={() => navigate(-1)}>
@@ -150,37 +149,44 @@ export function PackView() {
         <h1 className="text-xl font-bold text-white">Pacote</h1>
       </div>
 
-      {/* Pack Preview Card */}
-      <div className="bg-dark-800 border border-dark-700 rounded-xl overflow-hidden mb-6">
-        {/* Cover */}
-        <div className="relative aspect-video overflow-hidden">
-          {pack.coverUrl ? (
-            <img
-              src={resolveMediaUrl(pack.coverUrl) || ''}
-              alt={pack.name}
-              className="w-full h-full object-cover blur-sm"
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-brand-500/20 to-purple-500/20 flex items-center justify-center">
-              <Gift size={64} className="text-brand-400" />
+      {/* Pack Preview - Gift Box Style */}
+      <div className="flex justify-center mb-6">
+        <div className="relative w-64 aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-600/20 via-dark-800 to-dark-900 border-2 border-brand-500/30 shadow-xl">
+          {/* Gift ribbon - vertical */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-full bg-gradient-to-b from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+          {/* Gift ribbon - horizontal */}
+          <div className="absolute top-1/3 left-0 w-full h-8 bg-gradient-to-r from-brand-500/40 via-brand-500/20 to-brand-500/40" />
+          {/* Ribbon bow */}
+          <div className="absolute top-[calc(33%-16px)] left-1/2 -translate-x-1/2 w-14 h-14 rounded-full bg-brand-500/30 border-2 border-brand-500/50 flex items-center justify-center">
+            <Layers size={24} className="text-brand-400" />
+          </div>
+
+          {/* Content */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 pt-20">
+            <h3 className="font-bold text-white text-center text-lg leading-tight line-clamp-2 mb-2">{pack.name}</h3>
+            <div className="flex items-center gap-2 text-gray-400 text-sm">
+              <Layers size={14} />
+              <span>{pack.mediaCount} {pack.mediaCount === 1 ? 'item' : 'itens'}</span>
             </div>
-          )}
+          </div>
 
           {/* Lock overlay */}
-          <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
-            <Lock size={48} className="text-white mb-4" />
-            <p className="text-white font-semibold text-lg mb-1">{pack.name}</p>
-            <p className="text-white/70 text-sm">{pack.mediaCount} itens</p>
+          <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+            <div className="bg-black/60 rounded-full p-4">
+              <Lock size={32} className="text-white" />
+            </div>
           </div>
 
-          {/* Badge */}
-          <div className="absolute top-3 left-3">
-            <span className="bg-brand-500/90 text-white text-xs px-3 py-1 rounded-full flex items-center gap-1">
-              <Gift size={12} />
-              Pacote
-            </span>
+          {/* Bottom price */}
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-4 pt-8">
+            <div className="text-center">
+              <span className="text-brand-400 font-bold text-xl">{formatCurrency(pack.price)}</span>
+            </div>
           </div>
         </div>
+      </div>
+
+      <div className="bg-dark-800 border border-dark-700 rounded-xl overflow-hidden mb-6">
 
         {/* Info */}
         <div className="p-4">

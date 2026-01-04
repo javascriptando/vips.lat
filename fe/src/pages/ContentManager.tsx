@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Heart, MessageCircle, Eye, Lock, Image as ImageIcon, Grid, Upload, Trash2, Play, Layers, GripVertical, LockKeyhole, Unlock, X, Camera, Clock, Package, Globe, EyeOff } from 'lucide-react';
-import { Card, Button, Badge, ResponsiveModal } from '@/components/ui';
+import { Plus, Heart, MessageCircle, Eye, Lock, Image as ImageIcon, Grid, Upload, Trash2, Play, Layers, GripVertical, LockKeyhole, Unlock, X, Camera, Clock, Globe, EyeOff } from 'lucide-react';
+import { Button, Badge, ResponsiveModal } from '@/components/ui';
 import { StoryViewer, type StoryCreator } from '@/components/media';
 import { MediaViewer, type MediaPost } from '@/components/MediaViewer';
 import { api } from '@/lib/api';
@@ -633,21 +633,37 @@ export function ContentManager() {
   const posts = content?.data || [];
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <header className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-white mb-2">Meu Conteúdo</h1>
-          <p className="text-gray-400">Gerencie seus posts e mídias.</p>
+    <div className="space-y-5 animate-fade-in">
+      {/* Header - Mobile Responsive */}
+      <header className="space-y-3">
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-white">Meu Conteúdo</h1>
+            <p className="text-gray-400 text-sm hidden sm:block">Gerencie seus posts e mídias</p>
+          </div>
+          {/* Desktop buttons */}
+          <div className="hidden sm:flex gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowStoryModal(true)} className="flex items-center gap-1.5">
+              <Camera size={16} /> Story
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setShowPackModal(true)} className="flex items-center gap-1.5">
+              <Layers size={16} /> Pacote
+            </Button>
+            <Button size="sm" onClick={() => setShowCreateModal(true)} className="flex items-center gap-1.5">
+              <Plus size={16} /> Post
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-3">
-          <Button variant="secondary" onClick={() => setShowStoryModal(true)} className="flex items-center gap-2">
-            <Camera size={20} /> Story
+        {/* Mobile buttons - horizontal scroll */}
+        <div className="flex sm:hidden gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          <Button variant="secondary" size="sm" onClick={() => setShowStoryModal(true)} className="flex-shrink-0 flex items-center gap-1.5 text-sm">
+            <Camera size={16} /> Story
           </Button>
-          <Button variant="secondary" onClick={() => setShowPackModal(true)} className="flex items-center gap-2">
-            <Package size={20} /> Pacote
+          <Button variant="secondary" size="sm" onClick={() => setShowPackModal(true)} className="flex-shrink-0 flex items-center gap-1.5 text-sm">
+            <Layers size={16} /> Pacote
           </Button>
-          <Button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2">
-            <Plus size={20} /> Novo Post
+          <Button size="sm" onClick={() => setShowCreateModal(true)} className="flex-shrink-0 flex items-center gap-1.5 text-sm">
+            <Plus size={16} /> Post
           </Button>
         </div>
       </header>
@@ -671,30 +687,40 @@ export function ContentManager() {
         className="hidden"
       />
 
-      {/* Active Stories Management */}
-      {myStories.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Camera size={20} className="text-brand-500" />
-            Stories Ativos ({myStories.length})
-          </h2>
-          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
+      {/* Active Stories - Horizontal Carousel */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Camera size={20} className="text-brand-500" />
+          Stories {myStories.length > 0 && `(${myStories.length})`}
+        </h2>
+
+        {myStories.length === 0 ? (
+          <button
+            onClick={() => setShowStoryModal(true)}
+            className="w-full bg-dark-800/50 border border-dashed border-dark-600 hover:border-brand-500 rounded-xl p-4 text-center transition-colors"
+          >
+            <Camera size={24} className="mx-auto mb-1.5 text-gray-500" />
+            <p className="text-gray-400 text-sm">Criar primeiro story</p>
+            <p className="text-gray-500 text-xs mt-0.5">Expira em 24h</p>
+          </button>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin snap-x snap-mandatory">
             {myStories.map((story) => {
               const expiresAt = new Date(story.expiresAt);
               const hoursLeft = Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60)));
               const url = resolveMediaUrl(story.thumbnailUrl || story.mediaUrl) || '';
 
               return (
-                <div key={story.id} className="relative flex-shrink-0 group">
+                <div key={story.id} className="relative flex-shrink-0 group snap-start">
                   <button
                     onClick={handleOpenStory}
-                    className="w-24 h-36 rounded-xl overflow-hidden bg-dark-800 border-2 border-brand-500/50 hover:border-brand-500 transition-colors"
+                    className="w-20 h-32 md:w-24 md:h-36 rounded-xl overflow-hidden bg-dark-800 border-2 border-brand-500/50 hover:border-brand-500 transition-colors"
                   >
                     {story.mediaType === 'video' ? (
                       <div className="relative w-full h-full">
                         <video src={url} className="w-full h-full object-cover" muted />
                         <div className="absolute inset-0 flex items-center justify-center">
-                          <Play size={20} className="text-white fill-white" />
+                          <Play size={16} className="text-white fill-white" />
                         </div>
                       </div>
                     ) : (
@@ -703,13 +729,13 @@ export function ContentManager() {
                   </button>
 
                   {/* Stats overlay */}
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 rounded-b-xl pointer-events-none">
-                    <div className="flex items-center justify-between text-[10px] text-white">
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 rounded-b-xl pointer-events-none">
+                    <div className="flex items-center justify-between text-[9px] text-white">
                       <span className="flex items-center gap-0.5">
-                        <Eye size={10} /> {formatNumber(story.viewCount)}
+                        <Eye size={8} /> {formatNumber(story.viewCount)}
                       </span>
                       <span className="flex items-center gap-0.5">
-                        <Clock size={10} /> {hoursLeft}h
+                        <Clock size={8} /> {hoursLeft}h
                       </span>
                     </div>
                   </div>
@@ -722,7 +748,7 @@ export function ContentManager() {
                     }}
                     className="absolute -top-1 -right-1 p-1 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
                   >
-                    <X size={12} className="text-white" />
+                    <X size={10} className="text-white" />
                   </button>
                 </div>
               );
@@ -731,40 +757,38 @@ export function ContentManager() {
             {/* Add Story Button */}
             <button
               onClick={() => setShowStoryModal(true)}
-              className="w-24 h-36 flex-shrink-0 rounded-xl border-2 border-dashed border-dark-600 hover:border-brand-500 transition-colors flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-brand-500"
+              className="w-20 h-32 md:w-24 md:h-36 flex-shrink-0 rounded-xl border-2 border-dashed border-dark-600 hover:border-brand-500 transition-colors flex flex-col items-center justify-center gap-1.5 text-gray-500 hover:text-brand-500 snap-start"
             >
-              <Plus size={24} />
-              <span className="text-xs">Novo</span>
+              <Plus size={20} />
+              <span className="text-[10px]">Novo</span>
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Packs Management - Gift Package Style */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Package size={20} className="text-brand-500" />
-            Pacotes de Mídia ({myPacks.length})
-          </h2>
-          <Button variant="secondary" size="sm" onClick={() => setShowPackModal(true)} className="flex items-center gap-1.5">
-            <Plus size={16} /> Novo Pacote
-          </Button>
-        </div>
+      {/* Packs Management - Horizontal Carousel */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Layers size={20} className="text-brand-500" />
+          Pacotes ({myPacks.length})
+        </h2>
 
         {isLoadingPacks ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="bg-dark-800 rounded-2xl aspect-square animate-pulse" />
+              <div key={i} className="flex-shrink-0 w-40 h-48 bg-dark-800 rounded-xl animate-pulse" />
             ))}
           </div>
         ) : myPacks.length === 0 ? (
-          <div className="bg-dark-800/50 border border-dark-700 rounded-2xl p-6 text-center">
-            <Package size={32} className="mx-auto mb-2 text-gray-600" />
-            <p className="text-gray-500 text-sm">Nenhum pacote criado</p>
-          </div>
+          <button
+            onClick={() => setShowPackModal(true)}
+            className="w-full bg-dark-800/50 border border-dashed border-dark-600 hover:border-brand-500 rounded-xl p-6 text-center transition-colors"
+          >
+            <Layers size={28} className="mx-auto mb-2 text-gray-500" />
+            <p className="text-gray-400 text-sm">Criar primeiro pacote</p>
+          </button>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin snap-x snap-mandatory">
             {myPacks.map((pack: PackData) => {
               const mediaCount = pack.media?.length || 0;
 
@@ -804,35 +828,31 @@ export function ContentManager() {
                 <div
                   key={pack.id}
                   onClick={openPackViewer}
-                  className="group cursor-pointer"
+                  className="group cursor-pointer flex-shrink-0 w-40 snap-start"
                 >
-                  {/* Gift Box Style Card */}
-                  <div className="relative aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-600/20 via-dark-800 to-dark-900 border-2 border-brand-500/30 hover:border-brand-500/60 transition-all shadow-lg hover:shadow-brand-500/20 hover:scale-[1.02]">
-                    {/* Gift ribbon - vertical */}
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-full bg-gradient-to-b from-brand-500/40 via-brand-500/20 to-brand-500/40" />
-                    {/* Gift ribbon - horizontal */}
-                    <div className="absolute top-1/3 left-0 w-full h-6 bg-gradient-to-r from-brand-500/40 via-brand-500/20 to-brand-500/40" />
-                    {/* Ribbon bow */}
-                    <div className="absolute top-[calc(33%-12px)] left-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-brand-500/30 border-2 border-brand-500/50 flex items-center justify-center">
-                      <Package size={18} className="text-brand-400" />
+                  {/* Compact Pack Card */}
+                  <div className="relative h-48 rounded-xl overflow-hidden bg-gradient-to-br from-brand-600/20 via-dark-800 to-dark-900 border border-brand-500/30 hover:border-brand-500/60 transition-all">
+                    {/* Ribbon accent */}
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-full bg-gradient-to-b from-brand-500/30 via-brand-500/10 to-brand-500/30" />
+
+                    {/* Icon */}
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-brand-500/20 border border-brand-500/40 flex items-center justify-center">
+                      <Layers size={14} className="text-brand-400" />
                     </div>
 
                     {/* Content */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-4 pt-16">
-                      <h3 className="font-bold text-white text-center text-sm leading-tight line-clamp-2 mb-2">{pack.name}</h3>
-                      <div className="flex items-center gap-1 text-gray-400 text-xs">
-                        <Layers size={12} />
-                        <span>{mediaCount} {mediaCount === 1 ? 'item' : 'itens'}</span>
-                      </div>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-3 pt-12">
+                      <h3 className="font-bold text-white text-center text-xs leading-tight line-clamp-2 mb-1">{pack.name}</h3>
+                      <span className="text-gray-400 text-[10px]">{mediaCount} {mediaCount === 1 ? 'item' : 'itens'}</span>
                     </div>
 
-                    {/* Top badges */}
-                    <div className="absolute top-2 left-2">
+                    {/* Top badge */}
+                    <div className="absolute top-1.5 left-1.5">
                       <Badge
                         variant={pack.visibility === 'public' ? 'success' : 'warning'}
-                        className="text-[10px] px-1.5 py-0.5"
+                        className="text-[9px] px-1 py-0.5"
                       >
-                        {pack.visibility === 'public' ? 'Público' : 'Privado'}
+                        {pack.visibility === 'public' ? 'Pub' : 'Priv'}
                       </Badge>
                     </div>
 
@@ -842,26 +862,31 @@ export function ContentManager() {
                         e.stopPropagation();
                         setDeleteTarget({ type: 'pack', id: pack.id });
                       }}
-                      className="absolute top-2 right-2 p-1.5 bg-red-500/90 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                      className="absolute top-1.5 right-1.5 p-1 bg-red-500/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-10"
                     >
-                      <Trash2 size={12} className="text-white" />
+                      <Trash2 size={10} className="text-white" />
                     </button>
 
                     {/* Bottom info */}
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-6">
-                      <div className="flex items-center justify-between">
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-4">
+                      <div className="flex items-center justify-between text-[10px]">
                         <span className="text-brand-400 font-bold">{formatCurrency(pack.price)}</span>
-                        <span className="text-gray-400 text-xs">{pack.salesCount} vendas</span>
+                        <span className="text-gray-400">{pack.salesCount}x</span>
                       </div>
-                      {!pack.isActive && (
-                        <Badge variant="default" className="mt-1 text-[10px]">Inativo</Badge>
-                      )}
                     </div>
                   </div>
                 </div>
               );
             })}
 
+            {/* Add Pack Button at end */}
+            <button
+              onClick={() => setShowPackModal(true)}
+              className="flex-shrink-0 w-40 h-48 rounded-xl border-2 border-dashed border-dark-600 hover:border-brand-500 transition-colors flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-brand-500 snap-start"
+            >
+              <Plus size={24} />
+              <span className="text-xs">Novo</span>
+            </button>
           </div>
         )}
       </div>
@@ -1397,90 +1422,109 @@ export function ContentManager() {
         </div>
       </ResponsiveModal>
 
-      {/* Posts Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Grid size={20} className="text-brand-500" />
-            Posts ({posts.length})
-          </h2>
-          <Button variant="secondary" size="sm" onClick={() => setShowCreateModal(true)} className="flex items-center gap-1.5">
-            <Plus size={16} /> Novo Post
-          </Button>
-        </div>
+      {/* Posts Section - Horizontal Carousel */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Grid size={20} className="text-brand-500" />
+          Posts ({posts.length})
+        </h2>
 
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-dark-800 rounded-2xl aspect-[4/3] animate-pulse" />
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex-shrink-0 w-64 md:w-72 bg-dark-800 rounded-xl h-[260px] md:h-[290px] animate-pulse" />
             ))}
           </div>
         ) : posts.length === 0 ? (
-          <div className="bg-dark-800/50 border border-dark-700 rounded-2xl p-6 text-center">
-            <ImageIcon size={32} className="mx-auto mb-2 text-gray-600" />
-            <p className="text-gray-500 text-sm">Nenhum post publicado</p>
-          </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="w-full bg-dark-800/50 border border-dashed border-dark-600 hover:border-brand-500 rounded-xl p-6 text-center transition-colors"
+          >
+            <ImageIcon size={28} className="mx-auto mb-2 text-gray-500" />
+            <p className="text-gray-400 text-sm">Criar primeiro post</p>
+          </button>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin snap-x snap-mandatory">
             {posts.map((post: Content) => (
-              <Card key={post.id} padding="none" className="overflow-hidden group">
-                <div
-                  className="relative aspect-video cursor-pointer"
-                  onClick={() => navigate(`/post/${post.id}`)}
-                >
-                  {post.media?.[0] ? (
-                    <MediaThumbnail media={post.media[0]} />
-                  ) : (
-                    <div className="w-full h-full bg-dark-700 flex items-center justify-center">
-                      <ImageIcon size={32} className="text-dark-500" />
-                    </div>
-                  )}
-
-                  {/* Multiple media indicator */}
-                  {post.media.length > 1 && (
-                    <div className="absolute top-2 left-12 bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-md flex items-center gap-1">
-                      <Layers size={12} /> {post.media.length}
-                    </div>
-                  )}
-
-                  <div className="absolute top-2 right-2 flex gap-2">
-                    {post.visibility === 'ppv' && (
-                      <div className="bg-black/60 text-white px-2 py-1 rounded text-xs backdrop-blur-md flex items-center gap-1">
-                        <Lock size={12} /> {formatCurrency(post.ppvPrice || 0)}
+              <div
+                key={post.id}
+                className="flex-shrink-0 w-64 md:w-72 snap-start group cursor-pointer"
+                onClick={() => navigate(`/post/${post.id}`)}
+              >
+                <div className="bg-dark-800 rounded-xl overflow-hidden border border-dark-700 hover:border-dark-600 transition-all">
+                  {/* Media Preview */}
+                  <div className="relative aspect-[4/3]">
+                    {post.media?.[0] ? (
+                      <MediaThumbnail media={post.media[0]} />
+                    ) : (
+                      <div className="w-full h-full bg-dark-700 flex items-center justify-center">
+                        <ImageIcon size={28} className="text-dark-500" />
                       </div>
                     )}
-                    <Badge
-                      variant={post.visibility === 'public' ? 'success' : post.visibility === 'subscribers' ? 'warning' : 'default'}
+
+                    {/* Multiple media indicator */}
+                    {post.media.length > 1 && (
+                      <div className="absolute top-2 left-2 bg-black/60 text-white px-1.5 py-0.5 rounded text-[10px] backdrop-blur-md flex items-center gap-1">
+                        <Layers size={10} /> {post.media.length}
+                      </div>
+                    )}
+
+                    {/* Visibility badge */}
+                    <div className="absolute top-2 right-2">
+                      <Badge
+                        variant={post.visibility === 'public' ? 'success' : post.visibility === 'subscribers' ? 'warning' : 'default'}
+                        className="text-[10px] px-1.5 py-0.5"
+                      >
+                        {post.visibility === 'public' ? 'Pub' : post.visibility === 'subscribers' ? 'Assin' : 'PPV'}
+                      </Badge>
+                    </div>
+
+                    {/* Delete button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget({ type: 'post', id: post.id });
+                      }}
+                      className="absolute bottom-2 right-2 p-1.5 bg-red-500/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
                     >
-                      {post.visibility === 'public' ? 'Público' : post.visibility === 'subscribers' ? 'Assinantes' : 'PPV'}
-                    </Badge>
+                      <Trash2 size={12} className="text-white" />
+                    </button>
+
+                    {/* PPV Price */}
+                    {post.visibility === 'ppv' && (
+                      <div className="absolute bottom-2 left-2 bg-black/60 text-white px-1.5 py-0.5 rounded text-[10px] backdrop-blur-md flex items-center gap-1">
+                        <Lock size={10} /> {formatCurrency(post.ppvPrice || 0)}
+                      </div>
+                    )}
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteTarget({ type: 'post', id: post.id });
-                    }}
-                    className="absolute top-2 left-2 p-2 bg-red-500/80 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Trash2 size={16} className="text-white" />
-                  </button>
-                </div>
-                <div className="p-4">
-                  <p className="text-sm text-gray-300 line-clamp-2 mb-3">{post.text || 'Sem descrição'}</p>
-                  <div className="flex items-center justify-between text-xs text-gray-400 border-t border-dark-700 pt-3">
-                    <span className="flex items-center gap-1">
-                      <Heart size={14} /> {formatNumber(post.likeCount || 0)}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MessageCircle size={14} /> {formatNumber(post.commentCount || 0)}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Eye size={14} /> {formatNumber(post.viewCount || 0)}
-                    </span>
+
+                  {/* Content */}
+                  <div className="p-3">
+                    <p className="text-xs text-gray-300 line-clamp-2 mb-2 min-h-[2rem]">{post.text || 'Sem descrição'}</p>
+                    <div className="flex items-center justify-between text-[10px] text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Heart size={10} /> {formatNumber(post.likeCount || 0)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageCircle size={10} /> {formatNumber(post.commentCount || 0)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Eye size={10} /> {formatNumber(post.viewCount || 0)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </Card>
+              </div>
             ))}
+
+            {/* Add Post Button at end - matches post card height */}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex-shrink-0 w-64 md:w-72 rounded-xl border-2 border-dashed border-dark-600 hover:border-brand-500 transition-colors flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-brand-500 snap-start min-h-[260px] md:min-h-[290px]"
+            >
+              <Plus size={28} />
+              <span className="text-sm">Novo Post</span>
+            </button>
           </div>
         )}
       </div>

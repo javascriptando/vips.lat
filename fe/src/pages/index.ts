@@ -15,3 +15,6 @@ export { UserProfileView } from './UserProfileView';
 export { MessagesView } from './MessagesView';
 export { PostView } from './PostView';
 export { PackView } from './PackView';
+export { Admin } from './Admin';
+export { default as TermsOfUse } from './TermsOfUse';
+export { default as PrivacyPolicy } from './PrivacyPolicy';

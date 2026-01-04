@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { WebSocketProvider } from '@/providers/WebSocketProvider';
 import { LandingPage } from '@/components/auth';
 import { MainLayout } from '@/components/layout';
+import { queryClient } from '@/lib/queryClient';
 import {
   Dashboard,
   Feed,
@@ -21,16 +22,10 @@ import {
   MessagesView,
   PostView,
   PackView,
+  Admin,
+  TermsOfUse,
+  PrivacyPolicy,
 } from '@/pages';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
-      retry: 1,
-    },
-  },
-});
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -50,8 +45,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading, isAdmin } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 function AppRoutes() {
-  const { isAuthenticated, isLoading, isCreator, checkAuth } = useAuth();
+  const { isAuthenticated, isLoading, isCreator, isAdmin, checkAuth } = useAuth();
 
   useEffect(() => {
     checkAuth();
@@ -61,9 +74,7 @@ function AppRoutes() {
     return (
       <div className="min-h-screen bg-dark-900 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg animate-pulse">
-            V
-          </div>
+          <img src="/logo.png" alt="VIPS.lat" className="h-10 animate-pulse" />
           <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
         </div>
       </div>
@@ -72,8 +83,12 @@ function AppRoutes() {
 
   return (
     <Routes>
-      {/* Public Routes - Redireciona para dashboard se creator, senão para feed */}
-      <Route path="/" element={isAuthenticated ? <Navigate to={isCreator ? "/dashboard" : "/feed"} replace /> : <LandingPage />} />
+      {/* Public Routes - Redireciona baseado no tipo de usuário */}
+      <Route path="/" element={
+        isAuthenticated
+          ? <Navigate to={isAdmin ? "/admin" : isCreator ? "/dashboard" : "/feed"} replace />
+          : <LandingPage />
+      } />
 
       {/* Public Creator Profile - accessible without login */}
       <Route path="/creator/:username" element={<MainLayout />}>
@@ -89,6 +104,10 @@ function AppRoutes() {
       <Route path="/pack/:id" element={<MainLayout />}>
         <Route index element={<PackView />} />
       </Route>
+
+      {/* Legal Pages - Public */}
+      <Route path="/termos" element={<TermsOfUse />} />
+      <Route path="/privacidade" element={<PrivacyPolicy />} />
 
       {/* Protected Routes */}
       <Route
@@ -112,6 +131,18 @@ function AppRoutes() {
         <Route path="/earnings" element={<Earnings />} />
         <Route path="/subscribers" element={<SubscribersList />} />
         <Route path="/settings" element={<Settings />} />
+      </Route>
+
+      {/* Admin Routes */}
+      <Route
+        path="/admin"
+        element={
+          <AdminRoute>
+            <MainLayout />
+          </AdminRoute>
+        }
+      >
+        <Route index element={<Admin />} />
       </Route>
 
       {/* Catch all */}

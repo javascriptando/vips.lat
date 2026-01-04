@@ -46,10 +46,8 @@ export function LoginForm({ onBack, onSwitchToRegister }: LoginFormProps) {
     <div className="min-h-screen flex items-center justify-center bg-dark-900 p-4 animate-fade-in">
       <div className="w-full max-w-md bg-dark-800 border border-dark-700 rounded-2xl p-8 shadow-2xl">
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg">
-              V
-            </div>
+          <div className="flex items-center justify-center mb-4">
+            <img src="/logo.png" alt="VIPS.lat" className="h-10" />
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Bem-vindo de volta</h2>
           <p className="text-gray-400">Entre para acessar sua conta</p>
