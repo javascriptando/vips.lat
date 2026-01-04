@@ -1,4 +1,4 @@
-# SexyLife API - Mapa Completo de Endpoints
+# VIPS API - Mapa Completo de Endpoints
 
 **Base URL:** `http://localhost:7777`
 
@@ -31,7 +31,7 @@ POST /api/auth/login
   "email": "user@email.com",
   "password": "senha123"
 }
-// Resposta inclui cookie: sexylife_session
+// Resposta inclui cookie: vips_session
 ```
 
 ---
@@ -327,7 +327,7 @@ POST /api/payouts/request
 
 ## Autenticação
 
-Todas as rotas marcadas com ✓ requerem o cookie `sexylife_session` que é retornado após login.
+Todas as rotas marcadas com ✓ requerem o cookie `vips_session` que é retornado após login.
 
 ```javascript
 // Exemplo com fetch

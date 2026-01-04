@@ -1,6 +1,6 @@
-# SexyLife Backend
+# VIPS Backend
 
-API backend para a plataforma SexyLife.
+API backend para a plataforma VIPS.lat.
 
 ## Stack
 
@@ -29,7 +29,7 @@ cp .env.example .env
 # Editar .env com suas credenciais
 
 # Criar banco de dados
-createdb sexylife
+createdb vips
 
 # Rodar migrations
 bun run db:push
@@ -91,6 +91,6 @@ Ver [API.md](./API.md) para documentação completa.
 
 | Email | Senha | Role |
 |-------|-------|------|
-| admin@sexylife.co | admin123456 | admin |
-| creator@sexylife.co | creator123456 | creator |
-| subscriber@sexylife.co | subscriber123456 | subscriber |
+| admin@vips.lat | admin123456 | admin |
+| creator@vips.lat | creator123456 | creator |
+| subscriber@vips.lat | subscriber123456 | subscriber |

@@ -1,4 +1,4 @@
-# SexyLife API Documentation
+# VIPS API Documentation
 
 **Base URL:** `http://localhost:7777/api`
 
@@ -6,7 +6,7 @@
 
 ## Authentication
 
-All authenticated endpoints require a session cookie (`sexylife_session`).
+All authenticated endpoints require a session cookie (`vips_session`).
 
 ---
 
