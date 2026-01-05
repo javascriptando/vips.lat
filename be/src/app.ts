@@ -44,9 +44,17 @@ app.use('*', async (c, next) => {
   return secureHeaders()(c, next);
 });
 
-// CORS for API
+// CORS for API (dev: localhost + WSL IP + production)
 app.use('/api/*', cors({
-  origin: [env.FRONTEND_URL, 'http://localhost:3000', 'http://localhost:4000'],
+  origin: (origin) => {
+    // Allow requests with no origin (mobile apps, curl, etc)
+    if (!origin) return '*';
+    // Allow localhost, WSL IPs, and production
+    if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('172.') || origin.includes('10.') || origin.includes('vips.lat')) {
+      return origin;
+    }
+    return null;
+  },
   credentials: true,
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],

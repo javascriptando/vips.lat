@@ -163,7 +163,8 @@ export function useWebSocket(enabled: boolean = true) {
 
     try {
       // Get WebSocket token
-      const response = await fetch('/api/auth/ws-token', { credentials: 'include' });
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:7777';
+      const response = await fetch(`${apiUrl}/api/auth/ws-token`, { credentials: 'include' });
 
       // Check if still mounted after async operation
       if (!isMountedRef.current) {
