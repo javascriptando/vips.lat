@@ -30,6 +30,7 @@ paymentRoutes.post('/subscription', requireAuth, paymentRateLimit, zValidator('j
       ...result,
     }, 201);
   } catch (error) {
+    console.error('[Payment] Subscription error:', error);
     return c.json({ error: error instanceof Error ? error.message : 'Erro' }, 400);
   }
 });

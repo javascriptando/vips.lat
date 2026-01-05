@@ -36,8 +36,18 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   });
 
   if (!response.ok) {
-    const errorData = (await response.json()) as AsaasErrorResponse;
-    throw new AsaasError(response.status, errorData.errors || [{ code: 'UNKNOWN', description: 'Unknown error' }]);
+    let errorData: AsaasErrorResponse | null = null;
+    try {
+      const text = await response.text();
+      if (text) {
+        errorData = JSON.parse(text) as AsaasErrorResponse;
+      }
+    } catch {
+      // Ignore JSON parse errors
+    }
+    const errors = errorData?.errors || [{ code: 'UNKNOWN', description: `HTTP ${response.status}: ${response.statusText}` }];
+    console.error('[Asaas] API Error:', response.status, errors);
+    throw new AsaasError(response.status, errors);
   }
 
   // Handle empty responses

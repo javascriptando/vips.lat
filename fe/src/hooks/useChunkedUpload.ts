@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:7777';
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB - must match backend
 const MAX_CONCURRENT_CHUNKS = 3; // Upload 3 chunks in parallel
 
@@ -47,8 +48,9 @@ export function useChunkedUpload(options: UseChunkedUploadOptions = {}) {
     formData.append('chunkIndex', String(chunkIndex));
     formData.append('chunk', chunk);
 
-    const response = await axios.post(`/api/upload/${uploadId}/chunk`, formData, {
+    const response = await axios.post(`${API_BASE}/api/upload/${uploadId}/chunk`, formData, {
       signal,
+      withCredentials: true,
       headers: { 'Content-Type': 'multipart/form-data' },
     });
 
@@ -62,11 +64,11 @@ export function useChunkedUpload(options: UseChunkedUploadOptions = {}) {
     updateProgress: (progress: number) => void
   ): Promise<UploadedFile> => {
     // Initialize upload session
-    const initResponse = await axios.post('/api/upload/init', {
+    const initResponse = await axios.post(`${API_BASE}/api/upload/init`, {
       fileName: file.name,
       fileSize: file.size,
       mimeType: file.type,
-    }, { signal });
+    }, { signal, withCredentials: true });
 
     const { uploadId, totalChunks } = initResponse.data;
     let uploadedChunks = 0;
@@ -89,7 +91,7 @@ export function useChunkedUpload(options: UseChunkedUploadOptions = {}) {
     }
 
     // Complete upload and get final file info
-    const completeResponse = await axios.post(`/api/upload/${uploadId}/complete`, {}, { signal });
+    const completeResponse = await axios.post(`${API_BASE}/api/upload/${uploadId}/complete`, {}, { signal, withCredentials: true });
     return completeResponse.data.file;
   };
 
